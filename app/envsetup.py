@@ -14,6 +14,7 @@ import urllib.request
 
 import netpick
 import paths
+import plat
 import settings
 
 ENGINES = {
@@ -74,11 +75,51 @@ def _env():
 _pip_routes = {}
 
 
-def _pip(job, args, cwd=None, proxy=None, label=""):
+class _Slow(Exception):
+    pass
+
+
+def _watchdog(job, min_bps=1 << 20, window=60):
+    """pip 下载看门狗（配 --progress-bar raw）：最近 window 秒平均低于 min_bps、或 window 秒没进展，就结束 pip。
+    开头测速快、实际下载被限速的镜像（2026-10 仙宫云上南大镜像只有 175 KB/s）会换下一个源。"""
+    st = {"pts": [], "done": 0, "slow": False, "raw_ok": True}
+
+    def parse(line):
+        if "invalid choice: 'raw'" in line:   # 老版本 pip 没有 raw
+            st["raw_ok"] = False
+            return None
+        m = re.match(r"Progress (\d+) of (\d+)$", line)
+        if not m:
+            return None
+        cur, total = int(m.group(1)), int(m.group(2))
+        now = time.time()
+        if st["pts"] and cur < st["pts"][-1][1]:   # 换了一个文件
+            st["done"] += st["pts"][-1][1]
+        got = st["done"] + cur
+        st["pts"].append((now, cur))
+        st.setdefault("t0", now)
+        hist = st.setdefault("hist", [])
+        hist.append((now, got))
+        while hist and now - hist[0][0] > window:
+            hist.pop(0)
+        if now - st["t0"] > window and total - cur > (50 << 20):
+            span = now - hist[0][0]
+            speed = (got - hist[0][1]) / span if span > 1 else min_bps
+            if speed < min_bps:
+                st["slow"] = True
+                plat.kill_tree(job.proc.pid)
+                job.write(f"下载太慢（{speed / 1e6:.2f} MB/s），换下一个源")
+        if total:
+            job.set_progress(getattr(job, "progress", 0), f"下载 PyTorch {got / 1e9:.2f} GB（{cur * 100 // total}%）")
+        return False   # 进度行不写进日志
+    return st, parse
+
+
+def _pip(job, args, cwd=None, proxy=None, label="", watch=False):
     """pip 安装：镜像源按测速排序（清华 / 阿里云 / 中科大 / 官方 × 直连 / 代理），一个失败换下一个。
-    调用方自己指定了源（PyTorch）时，proxy / label 是那个源测出来的连接方式。"""
+    调用方自己指定了源（PyTorch）时，proxy / label 是那个源测出来的连接方式。watch：下载太慢就结束（抛 _Slow）。"""
     py = paths.env_python()
-    cmd = [py, "-m", "pip", "install", "--progress-bar", "off"] + args
+    cmd = [py, "-m", "pip", "install", "--progress-bar", "raw" if watch else "off"] + args
     explicit = any(a in ("-i", "--index-url", "-f", "--find-links") for a in args)
     if explicit:
         routes = [(None, proxy, label)]
@@ -92,7 +133,13 @@ def _pip(job, args, cwd=None, proxy=None, label=""):
         env = netpick.proxy_env(_env(), proxy) if idx or explicit else _env()
         if name:
             job.write(f"pip 源：{name}")
-        rc = job.run_cmd(c, cwd=cwd, env=env)
+        st, parse = _watchdog(job) if watch else (None, None)
+        rc = job.run_cmd(c, cwd=cwd, env=env, parse=parse)
+        if st and not st["raw_ok"]:
+            c = [x if x != "raw" else "off" for x in c]
+            rc = job.run_cmd(c, cwd=cwd, env=env)
+        if st and st["slow"]:
+            raise _Slow()
         if rc == 0:
             if i:   # 换过源的话，下次直接用这个
                 _pip_routes["list"] = [routes[i]] + [r for r in routes if r is not routes[i]]
@@ -267,12 +314,14 @@ def install_torch(job, force=False):
         try:
             job.write(f"安装 PyTorch（{name}）")
             extra = ["--force-reinstall", "--no-cache-dir"] if force else []
-            _pip(job, ["torch", "torchvision"] + extra + src, proxy=proxy, label=name)
+            _pip(job, ["torch", "torchvision"] + extra + src, proxy=proxy, label=name, watch=True)
             d = _torch_ok(job)
             if d:
                 return d
             job.write("装上的是 CPU 版 PyTorch，换下一个源重装")
             force = True
+        except _Slow:
+            last = "所有源都太慢"
         except Exception as e:
             last = e
             job.write(f"这个源失败：{e}")

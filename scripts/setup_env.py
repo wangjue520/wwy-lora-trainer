@@ -26,6 +26,9 @@ class ConsoleJob:
 
     def __init__(self):
         self.status = "running"
+        self.proc = None
+        self.progress = 0
+        self._last = ""
 
     def write(self, line):
         for ln in str(line).rstrip("\r\n").splitlines():
@@ -36,13 +39,20 @@ class ConsoleJob:
             pct = int(float(v or 0) * 100)
         except (TypeError, ValueError):
             pct = 0
+        self.progress = v
+        if text.startswith("下载 PyTorch"):   # 下载进度只在变化时打一行
+            if text[:20] != self._last:
+                print(f"  {text}", flush=True)
+                self._last = text[:20]
+            return
         print(f"\n[{pct:3d}%] {text}", flush=True)
 
     def run_cmd(self, cmd, cwd=None, env=None, parse=None):
         from jobs import decode_line
+        import plat
         print("$ " + " ".join(f'"{c}"' if " " in str(c) else str(c) for c in cmd), flush=True)
-        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL)
+        p = self.proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         stdin=subprocess.DEVNULL, **plat.popen_kwargs())
         buf = b""
         while True:
             chunk = p.stdout.read1(4096) if hasattr(p.stdout, "read1") else p.stdout.read(1)
@@ -55,6 +65,12 @@ class ConsoleJob:
                     break
                 line, buf = buf[:j], buf[j + 1:]
                 s = decode_line(line).strip()
+                if s and parse:
+                    try:
+                        if parse(s) is False:
+                            continue
+                    except Exception:
+                        pass
                 if s:
                     print(s, flush=True)
         if buf.strip():

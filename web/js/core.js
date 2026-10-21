@@ -318,7 +318,7 @@
               el.ondblclick = () => { done = true; res(x.path); m.close(); };
               list.append(el);
             });
-            info.textContent = cur ? (dir ? `当前文件夹有 ${d.images} 张图片；双击进入子文件夹` : '双击文件直接选择') : '选择一个磁盘';
+            info.textContent = cur ? (dir ? `当前文件夹有 ${d.images} 张图片；双击进入子文件夹` : '双击文件直接选择') : (App.sep(d.dirs[0] && d.dirs[0].path) === '/' ? '选择一个位置' : '选择一个磁盘');
           } catch (e) { info.textContent = e.message; }
         };
         body.querySelector('[data-up]').onclick = () => load(parent);
