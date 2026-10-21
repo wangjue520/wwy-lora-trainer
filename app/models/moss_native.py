@@ -47,22 +47,22 @@ class MossNative(Moss):
             "dit", "主模型（MOSS-Image DiT，bf16 单文件）", ["moss_dit"],
             help="专用引擎只支持未量化的 bf16 / fp16 单文件（int8 ConvRot、GGUF、FP8 都不认）；"
                  "官方分片目录请换 sd-scripts 引擎。",
-            downloads=[{"label": "MOSS-Image Base bf16（10.2 GB）", "repo": "Comfy-Org/MOSS-Image",
+            downloads=[{"label": "MOSS-Image Base bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "diffusion_models/moss_image_base_bf16.safetensors", "size_gb": 10.16},
-                       {"label": "MOSS-Image SFT bf16（10.2 GB）", "repo": "Comfy-Org/MOSS-Image",
+                       {"label": "MOSS-Image SFT bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "diffusion_models/moss_image_sft_bf16.safetensors", "size_gb": 10.16}]),
         Slot(
             "te", "文本编码器（Qwen3.5-9B，bf16）", ["qwen35_9b"],
             help="必须未量化：bf16 版 19 GB，24 GB 显卡缓存特征时比较紧（DiT 不会同时加载）。int8 请换 sd-scripts 引擎。",
-            downloads=[{"label": "Qwen3.5-9B bf16（19.3 GB）", "repo": "Comfy-Org/MOSS-Image",
+            downloads=[{"label": "Qwen3.5-9B bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "text_encoders/qwen3.5_9b_bf16.safetensors", "size_gb": 19.31}]),
         Slot(
             "vae", "VAE（官方 MOSS VAE）", ["flux2_vae"],
             help="专用引擎要按官方 vae/config.json 加载，必须用官方仓库的 vae/diffusion_pytorch_model.safetensors"
                  "（decoder 384 通道）。ComfyUI 的 flux2-vae 是 512 通道（sd-scripts 能用，专用引擎会报形状不符）。",
-            downloads=[{"label": "官方 MOSS VAE（专用引擎用，0.32 GB）", "repo": "OpenMOSS-Team/MOSS-Image-Base",
+            downloads=[{"label": "官方 MOSS VAE（专用引擎用）", "repo": "OpenMOSS-Team/MOSS-Image-Base",
                         "file": "vae/diffusion_pytorch_model.safetensors", "size_gb": 0.32},
-                       {"label": "ComfyUI flux2-vae（sd-scripts 用，0.34 GB）", "repo": "Comfy-Org/MOSS-Image",
+                       {"label": "ComfyUI flux2-vae（sd-scripts 用）", "repo": "Comfy-Org/MOSS-Image",
                         "file": "vae/flux2-vae.safetensors", "size_gb": 0.34}]),
     ]
     sample_defaults = dict(Moss.sample_defaults, steps=40)
