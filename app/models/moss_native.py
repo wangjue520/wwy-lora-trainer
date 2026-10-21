@@ -178,8 +178,6 @@ class MossNative(Moss):
             F("config_dir", "官方配置目录", "dir", "", "adv", "其他",
               help="含 pipeline_moss_image.py / transformer / text_encoder / vae 配置和 tokenizer 的目录。"
                    "留空 = 自动下载到 models/moss_official（只下配置，约几十 MB）。"),
-            F("sample_every_epochs", "每几轮出一张预览图", "int", 1, "adv", "其他", min=0, max=100,
-              help="0 = 不出。预览图用「训练中测试」第一条提示词，存放在输出目录的 sample 里。"),
         ]
 
     def vram_presets(self):
@@ -256,6 +254,11 @@ class MossNative(Moss):
         prompt = (smp[0].get("prompt") if smp else None) or self.sample_defaults.get("prompt") or ""
         negative = (smp[0].get("negative") if smp else None) or ""
         cfg = (smp[0].get("cfg") if smp else None) or 3.0
+        sw, sh = (int(smp[0].get(k) or d) // 16 * 16 for k, d in (("width", w), ("height", h))) if smp else (w, h)
+        # 出图间隔跟「训练中测试」页：跟随保存间隔，或自定义的每几轮（专用引擎不支持按步数）
+        every = 0
+        if sample.get("enabled") and smp:
+            every = int(p.get("save_every_n_epochs") or 1) if sample.get("follow_save") is not False else int(sample.get("every_n_epochs") or 0)
         max_epochs = int(p.get("epochs") or 10)
         algo = p.get("network_type") or "lora"
         warmup_steps = int(p.get("lr_warmup_steps") if p.get("lr_warmup_steps") is not None else -1)
@@ -340,10 +343,10 @@ tensorboard = true
 positive = {q(prompt)}
 negative = {q(negative)}
 cfg = {float(cfg)}
-resolution = [{w}, {h}]
+resolution = [{sw}, {sh}]
 scheduler = "moss"
 sampler = "euler"
-every_epochs = {int(p.get('sample_every_epochs') or 0) if sample.get('enabled') else 0}
+every_epochs = {every}
 """
         write_atomic(path, toml)
 

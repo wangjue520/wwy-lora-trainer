@@ -122,6 +122,8 @@
         if (s.use_turbo) msgs.push('加速出图用 8 步加速 LoRA（' + (c.models.turbo ? '模型设置里选的那个' : '没选就自动在模型库的 loras 文件夹里找 MOSS-SFT-8step-DMD') + '），8 步、CFG 1。');
         if (c.models.sample_dit) msgs.push('测试图用「模型设置 → 测试出图用的主模型」里选的主模型出（只在 bf16、不开 int8 时生效）。');
         if (!s.use_turbo) msgs.push('MOSS-Image 测试图按官方方式出：CFG 3、出图时跳过第 22 层，反向提示词用官方推荐的负面 tag；官方默认 50 步，测试用 40 步（28 步细节不够）。提示词用英文自然语言长句效果最好（也支持中文和 tag 串）。');
+      } else if (spec.id === 'moss_native') {
+        msgs.push('MOSS 专用引擎：每次只用第 1 条提示词出 1 张，固定 50 步；只能按轮出（自定义间隔填「每几轮」）。');
       } else if (spec.id === 'sdxl') {
         msgs.push('SDXL 测试图用训练中的大模型 + 当前 LoRA 生成，28 步、CFG 5–7 即可；采样器在「高级参数 → 其他」里改。');
         if (/pony/i.test(c.models.dit || '') && !/score_\d/.test(s.prompts.map(x => x.prompt).join(' ')))
