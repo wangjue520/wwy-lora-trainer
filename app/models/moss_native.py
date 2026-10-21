@@ -122,6 +122,8 @@ class MossNative(Moss):
             F("lr_scheduler", "学习率调度", "select", "cosine", "lr",
               options=[["constant", "constant · 恒定"], ["linear", "linear · 线性下降"],
                        ["cosine", "cosine · 余弦下降"], ["cosine_with_restarts", "cosine_with_restarts · 余弦重启"]]),
+            F("lr_scheduler_num_cycles", "余弦周期数", "int", 1, "lr", min=1,
+              show_if={"lr_scheduler": "cosine_with_restarts"}, help="1 = 不重启，2 = 中间重启 1 次，以此类推。"),
             F("lr_warmup_ratio", "预热比例", "float", 0.3, "lr", step=0.05, min=0, max=1,
               help="预热占 1 轮优化步数的比例，0 = 不预热。"),
             F("lr_warmup_steps", "预热步数（覆盖比例）", "int", -1, "lr", min=-1,
@@ -327,7 +329,7 @@ checkpoint_offload = {str(bool(p.get('checkpoint_offload'))).lower()}
 checkpoint_blocks = -1
 optimizer = {q(p.get('optimizer_type') or 'adamw')}
 scheduler = {q(p.get('lr_scheduler') or 'cosine')}
-cosine_restarts = 0
+cosine_restarts = {max(0, int(p.get('lr_scheduler_num_cycles') or 1) - 1) if p.get('lr_scheduler') == 'cosine_with_restarts' else 0}
 {warmup_line}
 save_every_epochs = {int(p.get('save_every_n_epochs') or 1)}
 seed = {int(p.get('seed') or 42)}
