@@ -758,7 +758,6 @@ def _env_install(a):
 # ======================= HTTP =======================
 class Handler(BaseHTTPRequestHandler):
     server_version = "LoraTrainer/1.0"
-    protocol_version = "HTTP/1.1"   # 长连接：每个响应都带 Content-Length（_send）；经云平台端口代理时不用每个请求新建连接
 
     def log_message(self, fmt, *args):
         pass
