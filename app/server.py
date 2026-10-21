@@ -757,6 +757,7 @@ def _env_install(a):
 # ======================= HTTP =======================
 class Handler(BaseHTTPRequestHandler):
     server_version = "LoraTrainer/1.0"
+    protocol_version = "HTTP/1.1"   # 长连接：每个响应都带 Content-Length（_send）；经云平台端口代理时不用每个请求新建连接
 
     def log_message(self, fmt, *args):
         pass
@@ -833,12 +834,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": False, "error": str(e) or e.__class__.__name__})
 
 
+class _Server(ThreadingHTTPServer):
+    request_queue_size = 128   # 默认只有 5：浏览器经代理并发加载二十来个文件时会排不上、一直挂着
+
+
 def serve(host, port, extra=False):
     """extra：再多监听一个端口（同一个训练器，比如云平台的「打开 WebUI」按钮固定开 80 端口）。"""
     if not extra:
         _served["port"] = port
         _served["host"] = host
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = _Server((host, port), Handler)
     httpd.daemon_threads = True
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
