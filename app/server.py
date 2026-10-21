@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """本地 HTTP 服务：提供界面（web/）和 JSON 接口（POST /api/<名字>）。只用标准库。"""
+import email.utils
 import gzip
 import json
 import mimetypes
@@ -804,8 +805,17 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(p)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript",):
             ctype += "; charset=utf-8"
+        # 界面文件：没改过就回 304 不重传（云平台的端口代理慢，每次打开重下 1.8 MB 要十几秒）；字体基本不变，直接缓存 7 天
+        mtime = email.utils.formatdate(int(os.path.getmtime(p)), usegmt=True)
+        if self.headers.get("If-Modified-Since") == mtime:
+            self.send_response(304)
+            self.send_header("Last-Modified", mtime)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        cache = "max-age=604800" if rel.startswith("fonts/") else "no-cache"
         with open(p, "rb") as f:
-            self._send(200, f.read(), ctype)
+            self._send(200, f.read(), ctype, {"Cache-Control": cache, "Last-Modified": mtime})
 
     def _file(self, p):
         # 只给图片：界面里显示训练集和测试图用
