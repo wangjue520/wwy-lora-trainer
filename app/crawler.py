@@ -65,7 +65,7 @@ class Client:
                 time.sleep(self.interval - d)
             self._last = time.time()
 
-    def get(self, path, params=None, retries=6):
+    def get(self, path, params=None, retries=6, timeout=30):
         url = f"{BASE}/{path}" + ("?" + urllib.parse.urlencode(params) if params else "")
         for attempt in range(retries):
             if self.job.stop_flag:
@@ -73,7 +73,7 @@ class Client:
             self._wait()
             req = urllib.request.Request(url, headers={"User-Agent": UA, **({"Authorization": self.auth} if self.auth else {})})
             try:
-                with urllib.request.urlopen(req, timeout=30) as r:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
                     return json.loads(r.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 body = e.read()[:400].decode("utf-8", "replace")
@@ -88,7 +88,7 @@ class Client:
             except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
                 if attempt == retries - 1:
                     raise CrawlError(f"连不上 Danbooru：{e}。国内网络需要代理 / 加速器。")
-                time.sleep(3)
+                time.sleep(min(3, timeout / 3))
         raise CrawlError("Danbooru 一直限流，稍后再试")
 
     def download(self, url, dest):
@@ -494,7 +494,7 @@ def autocomplete(q, login="", api_key=""):
             pass
     c = Client(_J(), login, api_key)
     c.interval = 0
-    d = c.get("autocomplete.json", {"search[query]": q, "search[type]": "tag_query", "limit": 10}, retries=1)
+    d = c.get("autocomplete.json", {"search[query]": q, "search[type]": "tag_query", "limit": 10}, retries=1, timeout=8)
     if not isinstance(d, list):
         return []
     return [{"name": x.get("value"), "count": x.get("post_count") or (x.get("tag") or {}).get("post_count", 0),

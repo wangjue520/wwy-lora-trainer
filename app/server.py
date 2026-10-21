@@ -601,7 +601,8 @@ def _dict_validate(a):
         s = settings.load()
         try:
             c = crawler.Client(_J(), s.get("danbooru_login", ""), s.get("danbooru_api_key", ""))
-            d = c.get("tags.json", {"search[name_comma]": ",".join(unknown), "only": "name,post_count,category", "limit": 100}, retries=2)
+            d = c.get("tags.json", {"search[name_comma]": ",".join(unknown), "only": "name,post_count,category", "limit": 100},
+                      retries=1, timeout=8)   # 界面在等：连不上 / 很慢（国内）就先按「未确认」放行
             found = {x["name"]: x for x in d} if isinstance(d, list) else {}
             offline = False
         except Exception:
