@@ -63,8 +63,9 @@
     outHint() {
       const p = App.params();
       const name = p.output_name || 'lora';
-      const dir = App.draft.output_dir + (App.draft.subdir_per_task !== false ? '\\' + name : '');
-      $('#train-outdir-hint').textContent = `将保存为：${dir}\\${name}.safetensors（中间轮次：${name}-000001.safetensors …）`;
+      const sp = App.sep(App.draft.output_dir);
+      const dir = App.draft.output_dir + (App.draft.subdir_per_task !== false ? sp + name : '');
+      $('#train-outdir-hint').textContent = `将保存为：${dir}${sp}${name}.safetensors（中间轮次：${name}-000001.safetensors …）`;
     },
     renderPresets() {
       const s = $('#preset-select'); const names = Object.keys(App.state.presets || {});
@@ -209,7 +210,7 @@
       if (P._mFor !== t.id || P._mTags !== want.join('|')) {
         box.innerHTML = '';
         P._cards = {};
-        const sub = `logs\\${t.id}`;
+        const sub = `logs${App.sep(t.output_dir)}${t.id}`;
         const NAMES = { 'loss/average': '平均 loss', 'loss/current': '当前步 loss', 'loss/epoch_average': '每轮平均 loss', 'loss/epoch': '每轮平均 loss',
           'lr/epoch': '每轮学习率（横轴是轮数）', 'lr/actual': '实际学习率（优化器自动调整后）', 'lr/unet': '学习率（调度器）' };
         want.forEach(tag => {

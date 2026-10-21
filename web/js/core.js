@@ -408,6 +408,7 @@
     fmtSize(b) { return b > 1e9 ? (b / 1e9).toFixed(2) + ' GB' : (b / 1e6).toFixed(0) + ' MB'; },
     fmtTime(ts) { if (!ts) return ''; const d = new Date(ts * 1000); return d.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-'); },
     base(p) { return String(p || '').split(/[\\/]/).pop(); },
+    sep(p) { return /^[A-Za-z]:|\\/.test(String(p || '')) ? '\\' : '/'; },   // 拼路径用的分隔符：Windows 路径用 \，Linux 用 /
   };
   window.App = App;
 })();

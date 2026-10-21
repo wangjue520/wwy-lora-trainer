@@ -29,7 +29,7 @@
     $b('[data-trig]').value = st.trigger;
     const where = () => {
       const t = d.targets.filter(x => st.sel.has(x.id));
-      $b('[data-where]').textContent = t.length ? '会放到：' + t.map(x => x.dir + (x.organize ? `\\${d.base}\\${st.type}` : '')).join('；') : '';
+      $b('[data-where]').textContent = t.length ? '会放到：' + t.map(x => x.dir + (x.organize ? App.sep(x.dir) + d.base + App.sep(x.dir) + st.type : '')).join('；') : '';
     };
     const prev = () => {
       $b('[data-prev]').hidden = !st.preview;
