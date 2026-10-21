@@ -28,11 +28,14 @@
 
     // ---------------- 启动 ----------------
     async boot() {
+      const loading = h('<div id="boot-loading">正在连接训练器…</div>'); document.body.append(loading);   // 云主机的端口代理慢时会等几秒
       try {
         this.state = await api('boot');
       } catch (e) {
-        document.body.innerHTML = `<div style="padding:40px;font-size:15px">训练器后台没有响应：${esc(e.message)}<br>请重新运行「启动LoRA训练器.bat」。</div>`;
+        document.body.innerHTML = `<div style="padding:40px;font-size:15px">训练器后台没有响应：${esc(e.message)}<br>请重新启动训练器。</div>`;
         return;
+      } finally {
+        loading.remove();
       }
       this.applyTheme(this.state.settings.theme);
       $('#app-version').textContent = 'V' + (this.state.version.version || '0.1.0');
