@@ -104,16 +104,19 @@ class Moss(Anima):
     # ---------------- 参数 ----------------
     def params(self):
         f = drop(super().params(), *_ANIMA_ONLY)
-        for k, v in {"learning_rate": 1e-4, "optimizer_type": "AdamW8bit", "lr_scheduler": "constant", "lr_warmup_steps": 0,
-                     "output_name": "mylora_moss_v1", "network_dim": 32, "network_alpha": 32, "batch_size": 1, "epochs": 10,
-                     "repeats": 4, "timestep_sampling": "sigma", "discrete_flow_shift": 1.0, "weighting_scheme": "logit_normal",
+        for k, v in {"learning_rate": 2e-4, "optimizer_type": "AdamW", "lr_scheduler": "cosine_with_restarts", "lr_scheduler_num_cycles": 2,
+                     "lr_warmup_steps": 0, "output_name": "mylora_moss_v1", "network_dim": 32, "network_alpha": 32, "batch_size": 1,
+                     "epochs": 20, "repeats": 1, "save_every_n_epochs": 2,
+                     "timestep_sampling": "sigma", "discrete_flow_shift": 1.0, "weighting_scheme": "logit_normal",
                      "logit_mean": -1.09, "logit_std": 0.95, "num_workers": 2}.items():
             override(f, k, default=v)
         override(f, "optimizer_type", options=OPTIMIZERS)
         # 2026-10-21 实测（Mika 画风 37 张，学习率 1e-4）：alpha 16 第 2–4 轮就学到画风、第 6 轮后开始跑偏；
         # 官方示例的 alpha 1 要第 6–8 轮才到同样程度。默认用 alpha = dim、每轮保存挑最好的。
         # 同一天 WebUI 实测：dim 16 练出的画风 LoRA 在 Base + CFG 3 下明显，但配 8 步加速（CFG 1）几乎看不出来；
-        # 社区 rank 32、1500 步的画风 LoRA 改动约是它的 2.5 倍，加速下照样有画风。默认改成 dim 32、重复 4 × 10 轮，待实测定轮数。
+        # 社区 rank 32、1500 步的画风 LoRA 改动约是它的 2.5 倍，加速下照样有画风。改成 dim 32。
+        # 默认训练方案按作者朋友推荐的（kieed 画风实测，Base 练、SFT + 8 步加速出图有画风）：学习率 2e-4、AdamW、
+        # 余弦 2 个周期（中间重启 1 次）、重复 1 × 20 轮、每 2 轮保存；学习率在第 10、20 轮降到最低，这两轮最稳。
         override(f, "timestep_sampling", options=[["sigma", "sigma（复现官方预训练分布，推荐）"], ["shift", "shift（配 flow shift 3.0 分布相近）"],
                                                    ["sigmoid", "sigmoid"], ["uniform", "uniform"], ["flux_shift", "flux_shift"]])
         override(f, "discrete_flow_shift", show_if={"timestep_sampling": ["sigma", "shift"]},
