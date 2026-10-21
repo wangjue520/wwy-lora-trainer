@@ -63,6 +63,9 @@
       P.renderMode();
       const hasTurbo = spec.slots.some(x => x.key === 'turbo');
       $('#s-turbo-wrap').hidden = !hasTurbo; $('#s-turbo').checked = !!s.use_turbo;
+      const hasAlt = spec.slots.some(x => x.key === 'sample_dit');
+      $('#s-model-wrap').hidden = !hasAlt;
+      if (hasAlt) P.loadSampleModels();
       P.renderPrompts(); P.hint(); P.renderTasks();
       // 旧版本存下的默认提示词（没有 auto_default 标记）：内容还是当时的默认值就当作没改过，换成新的标准写法
       const OLD = ['a photo of a young woman standing on a city street at dusk, natural light', 'masterpiece, best quality, 1girl, solo, looking at viewer, upper body'];
@@ -71,6 +74,20 @@
       clearInterval(timer); timer = setInterval(() => { const t = P.task(); if (t && t.status === 'running') P.loadGrid(); }, 5000);
     },
     hide() { clearInterval(timer); },
+    // 测试出图用的主模型（MOSS：比如用 Base 练、用 SFT 出图）；和「模型设置」里的「测试出图用的主模型」是同一个设置
+    async loadSampleModels() {
+      const spec = App.spec(), c = App.cur(), sel = $('#s-model');
+      const cur = c.models.sample_dit || '';
+      sel.innerHTML = `<option value="">和训练用的主模型一样</option>${cur ? `<option value="${esc(cur)}">${esc(App.base(cur))}</option>` : ''}`;
+      sel.value = cur;
+      sel.onchange = () => { c.models.sample_dit = sel.value; App.saveDraft(); P.hint(); };
+      let res; try { res = await api('models.list', { model_type: spec.id }); } catch (e) { return; }
+      if (App.spec() !== spec) return;
+      const cands = ((res.slots && res.slots.sample_dit) || []).filter(x => !x.quant);   // int8 单文件不能用来换
+      sel.innerHTML = '<option value="">和训练用的主模型一样</option>' + cands.map(x => `<option value="${esc(x.path)}">${esc(x.name)}</option>`).join('')
+        + (cur && !cands.some(x => x.path === cur) ? `<option value="${esc(cur)}">自选：${esc(cur)}</option>` : '');
+      sel.value = c.models.sample_dit || '';
+    },
     // 标准正向 / 负向提示词：按底模和选的主模型系列（SDXL 的 Illustrious / NoobAI / Pony 写法不同）向后端要
     async loadDefaults(force) {
       const spec = App.spec(), c = App.cur(); if (!spec) return;
