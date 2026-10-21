@@ -128,7 +128,7 @@
           if (j.kind === 'env') { if (j.status === 'done') App.toast(j.title + '完成', 'ok'); P.show(); }
         }
       };
-      f(); jobTimer = setInterval(f, 1200);
+      f(); jobTimer = setInterval(App.poll(f), 1200);
       $('#st-job-log-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     },
     hide() { },

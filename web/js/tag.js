@@ -167,7 +167,7 @@
     watch() {
       clearInterval(timer);
       $('#tag-start').disabled = true; $('#tag-stop').disabled = false;
-      timer = setInterval(async () => {
+      timer = setInterval(App.poll(async () => {
         const j = await api('jobs.get', { id: jobId, log: 300 }).catch(() => null);
         if (!j) return;
         $('#tag-prog i').style.width = (j.progress || 0) * 100 + '%';
@@ -185,7 +185,7 @@
             App.modal({ title: '反推失败', bad: true, body: `<div class="issue"><b>${esc(j.error)}</b></div><div class="code-box" style="max-height:240px">${esc((j.log || []).slice(-25).join('\n'))}</div>`, buttons: [{ label: '关闭' }] });
           }
         }
-      }, 1000);
+      }), 1000);
     },
     goEdit() { App.draft.editor_dir = T().dir; App.saveDraft(true); App.go('editor'); },
   };

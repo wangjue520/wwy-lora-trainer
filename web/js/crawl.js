@@ -143,13 +143,13 @@
       let id;
       try { id = await api('dict.download'); } catch (e) { App.toast(e.message, 'bad'); return; }
       $('#cr-dict-dl').disabled = true; $('#cr-dict-dl').textContent = '下载中…';
-      const t = setInterval(async () => {
+      const t = setInterval(App.poll(async () => {
         const j = await api('jobs.get', { id }).catch(() => null);
         if (!j || j.status === 'running') { if (j && j.progress_text) $('#cr-dict-dl').textContent = '下载中 ' + j.progress_text; return; }
         clearInterval(t); $('#cr-dict-dl').disabled = false; $('#cr-dict-dl').textContent = '下载中英字典';
         if (j.status === 'done') App.toast('字典已下载，中文也能搜标签了', 'ok'); else App.toast('字典下载失败：' + (j.error || ''), 'bad');
         P.dictStatus();
-      }, 800);
+      }), 800);
     },
     show() {
       const c = C();
@@ -196,7 +196,7 @@
     watch() {
       clearInterval(timer);
       $('#cr-start').disabled = true; $('#cr-stop').disabled = false;
-      timer = setInterval(async () => {
+      timer = setInterval(App.poll(async () => {
         const j = await api('jobs.get', { id: jobId, log: 400 }).catch(() => null);
         if (!j) return;
         $('#cr-prog i').style.width = (j.progress || 0) * 100 + '%';
@@ -215,7 +215,7 @@
             App.modal({ title: '爬取没有完成', bad: true, body: `<div class="issue"><b>${esc(j.error)}</b></div>`, buttons: [{ label: '关闭' }] });
           }
         }
-      }, 1000);
+      }), 1000);
     },
     useAsDataset(go) {
       const dir = C().out_dir;

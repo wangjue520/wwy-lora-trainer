@@ -57,8 +57,9 @@
       Object.values(this.pages).forEach(p => p.init && p.init());
       const hash = location.hash.replace('#', '');
       this.go(PAGES[hash] ? hash : (this.draft.model_type ? 'train' : 'model'));
-      this.tick();
-      setInterval(() => this.tick(), 1500);
+      const tick = this.poll(() => this.tick());
+      tick();
+      setInterval(tick, 1500);
       setInterval(() => { const d = new Date(); $('#topbar-clock').textContent = d.toTimeString().slice(0, 8); }, 1000);
       if (!this.state.env.env) {
         this.toast('训练环境还没安装，训练和本地反推前需要先安装（约 4 GB）', 'warn', '去安装', () => this.go('settings'), 12000);
@@ -157,6 +158,11 @@
     emit(ev, d) { (this._ls[ev] || []).forEach(f => { try { f(d); } catch (e) { console.error(e); } }); },
 
     // ---------------- 轮询 ----------------
+    // 轮询用：上一次还没返回就跳过这一次（经云平台代理等慢网络时，请求不会越堆越多把连接堵死）
+    poll(fn) {
+      let busy = false;
+      return async (...a) => { if (busy) return; busy = true; try { return await fn(...a); } finally { busy = false; } };
+    },
     async tick() {
       try {
         const [q, jobs, g] = await Promise.all([api('queue.list'), api('jobs.list'), api('gpu')]);
@@ -181,7 +187,7 @@
         try { const r = await fetch('/api/queue.list', { method: 'POST', body: '{}' }); if (r.ok) { location.reload(); return; } } catch (e) { /* 还没起来 */ }
         await new Promise(r => setTimeout(r, 1000));
       }
-      this.toast('训练器没有自动起来，请手动双击「启动LoRA训练器.bat」', 'bad', null, null, 30000);
+      this.toast('训练器没有自动起来，请手动重新启动训练器', 'bad', null, null, 30000);
     },
     renderGpu(g) {
       const el = $('#gpu-mon');

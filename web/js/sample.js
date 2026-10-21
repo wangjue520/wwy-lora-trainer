@@ -71,7 +71,8 @@
       const OLD = ['a photo of a young woman standing on a city street at dusk, natural light', 'masterpiece, best quality, 1girl, solo, looking at viewer, upper body'];
       if (s.auto_default === undefined && s.prompts.length === 1 && OLD.includes((s.prompts[0].prompt || '').trim())) s.auto_default = true;
       if (s.auto_default) P.loadDefaults(false);
-      clearInterval(timer); timer = setInterval(() => { const t = P.task(); if (t && t.status === 'running') P.loadGrid(); }, 5000);
+      const grid = App.poll(() => P.loadGrid());
+      clearInterval(timer); timer = setInterval(() => { const t = P.task(); if (t && t.status === 'running') return grid(); }, 5000);
     },
     hide() { clearInterval(timer); },
     // 测试出图用的主模型（MOSS：比如用 Base 练、用 SFT 出图）；和「模型设置」里的「测试出图用的主模型」是同一个设置

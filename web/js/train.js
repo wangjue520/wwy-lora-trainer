@@ -57,7 +57,7 @@
       $('#train-subdir').checked = App.draft.subdir_per_task !== false;
       P.outHint(); P.renderSummary(); P.renderPresets();
       if (App.queue) P.renderQueue(App.queue);
-      clearInterval(logTimer); logTimer = setInterval(P.refreshLog, 1500); P.refreshLog();
+      clearInterval(logTimer); logTimer = setInterval(P._pollLog || (P._pollLog = App.poll(P.refreshLog)), 1500); P.refreshLog();
     },
     hide() { clearInterval(logTimer); },
     outHint() {
@@ -194,6 +194,11 @@
     },
     // 2×2 图表：loss/average、loss/current、loss/epoch_average、学习率；有验证集时再加验证 loss
     async loadMetrics(force) {
+      if (P._mBusy && !force) return;   // 上一次还没返回
+      P._mBusy = true;
+      try { await P._loadMetrics(force); } finally { P._mBusy = false; }
+    },
+    async _loadMetrics(force) {
       const t = P.selTask(), box = $('#td-charts');
       if (!t) { box.innerHTML = ''; P._mFor = null; return; }
       const live = t.status === 'running';
