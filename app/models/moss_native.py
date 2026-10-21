@@ -45,25 +45,21 @@ class MossNative(Moss):
     slots = [
         Slot(
             "dit", "主模型（MOSS-Image DiT，bf16 单文件）", ["moss_dit"],
-            help="专用引擎只支持未量化的 bf16 / fp16 单文件（int8 ConvRot、GGUF、FP8 都不认）；"
-                 "官方分片目录请换 sd-scripts 引擎。",
+            help="只认未量化的 bf16 / fp16 单文件。",
             downloads=[{"label": "MOSS-Image Base bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "diffusion_models/moss_image_base_bf16.safetensors", "size_gb": 10.16},
                        {"label": "MOSS-Image SFT bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "diffusion_models/moss_image_sft_bf16.safetensors", "size_gb": 10.16}]),
         Slot(
             "te", "文本编码器（Qwen3.5-9B，bf16）", ["qwen35_9b"],
-            help="必须未量化：bf16 版 19 GB，24 GB 显卡缓存特征时比较紧（DiT 不会同时加载）。int8 请换 sd-scripts 引擎。",
+            help="只认未量化的 bf16。",
             downloads=[{"label": "Qwen3.5-9B bf16", "repo": "Comfy-Org/MOSS-Image",
                         "file": "text_encoders/qwen3.5_9b_bf16.safetensors", "size_gb": 19.31}]),
         Slot(
             "vae", "VAE（官方 MOSS VAE）", ["flux2_vae"],
-            help="专用引擎要按官方 vae/config.json 加载，必须用官方仓库的 vae/diffusion_pytorch_model.safetensors"
-                 "（decoder 384 通道）。ComfyUI 的 flux2-vae 是 512 通道（sd-scripts 能用，专用引擎会报形状不符）。",
-            downloads=[{"label": "官方 MOSS VAE（专用引擎用）", "repo": "OpenMOSS-Team/MOSS-Image-Base",
-                        "file": "vae/diffusion_pytorch_model.safetensors", "size_gb": 0.32},
-                       {"label": "ComfyUI flux2-vae（sd-scripts 用）", "repo": "Comfy-Org/MOSS-Image",
-                        "file": "vae/flux2-vae.safetensors", "size_gb": 0.34}]),
+            help="只认官方 MOSS VAE（ComfyUI 的 flux2-vae 不行）。",
+            downloads=[{"label": "官方 MOSS VAE", "repo": "OpenMOSS-Team/MOSS-Image-Base",
+                        "file": "vae/diffusion_pytorch_model.safetensors", "size_gb": 0.32}]),
     ]
     sample_defaults = dict(Moss.sample_defaults, steps=40)
 
@@ -95,10 +91,10 @@ class MossNative(Moss):
     def params(self):
         return [
             F("gradient_checkpointing", "梯度检查点", "bool", True, "top",
-              help="专用引擎用 torch 的 checkpoint 包住每个主干预块，省显存、慢一点。"),
+              help="省显存，慢一点。"),
 
             F("dataset_dir", "训练集位置", "dir", "", "basic",
-              help="图片和同名 .txt 放在一起，子文件夹也会递归扫描。专用引擎按 kohya 分桶，不放大图。"),
+              help="图片和同名 .txt 放在一起，子文件夹也会扫描。"),
             F("output_name", "保存名称", "text", "mylora_moss_v1", "basic", help="导出的 LoRA 文件名（不含扩展名）。"),
             F("repeats", "每张图重复次数", "int", 1, "basic", min=1, max=1000),
             F("epochs", "训练轮数", "int", 20, "basic", min=1, max=10000),
@@ -142,13 +138,13 @@ class MossNative(Moss):
             F("timestep_shift", "时间步偏移", "float", 1.0, "adv", "时间步 / 噪声", step=0.1, min=0.1,
               help="1.0 = 不偏移；官方推理 shift=5，训练默认 1.0。"),
             F("caption_dropout", "标签丢弃概率", "float", 0.1, "adv", "时间步 / 噪声", step=0.01, min=0, max=1,
-              help="每步随机把一部分样本的标签换成空标签，减少过拟合、让 CFG 更好用。"),
+              help="随机把一部分样本的标签换成空标签。"),
             F("checkpoint_policy", "检查点策略", "select", "full", "adv", "时间步 / 噪声",
               options=[["full", "full（整块重算，最省显存）"], ["attention", "attention（保留注意力，快一点）"]]),
             F("save_every_n_epochs", "每几轮保存一次", "int", 2, "adv", "训练细节", min=1, max=100),
             F("seed", "随机种子", "int", 42, "adv", "训练细节"),
             F("num_workers", "数据加载线程", "int", 0, "adv", "训练细节", min=0, max=16,
-              help="专用引擎默认 0（主进程读缓存）；调大可提速。"),
+              help="0 = 主进程读缓存。"),
             F("moss_max_token_length", "标签最大长度（token）", "int", 4096, "adv", "训练细节", min=256, max=4096, step=256),
             F("enable_bucket", "分桶", "bool", True, "adv", "训练细节"),
             F("min_bucket_reso", "最小桶边长", "int", 256, "adv", "训练细节"),
@@ -170,16 +166,15 @@ class MossNative(Moss):
               show_if={"network_type": "lokr"}),
 
             F("compile_blocks", "torch.compile 主干预块", "bool", False, "adv", "显存 / 速度",
-              help="首次运行要编译，之后快一些；需要 triton。先跑通再开。"),
+              help="首次运行要编译；需要 triton。"),
             F("checkpoint_offload", "检查点激活卸载到 CPU", "bool", False, "adv", "显存 / 速度",
-              help="进一步省显存，少量传输开销；配合梯度检查点用。"),
+              help="配合梯度检查点用。"),
             F("fused_situ", "融合 SITU 激活", "bool", False, "adv", "显存 / 速度",
-              help="用 Triton 融合推理激活的前向 / 反向；需要 triton，出问题就关掉。"),
+              help="需要 triton。"),
             F("fused_rmsnorm", "融合 RMSNorm", "bool", False, "adv", "显存 / 速度"),
 
             F("config_dir", "官方配置目录", "dir", "", "adv", "其他",
-              help="含 pipeline_moss_image.py / transformer / text_encoder / vae 配置和 tokenizer 的目录。"
-                   "留空 = 自动下载到 models/moss_official（只下配置，约几十 MB）。"),
+              help="留空 = 自动下载到 models/moss_official（几十 MB，不含权重）。"),
         ]
 
     def vram_presets(self):
