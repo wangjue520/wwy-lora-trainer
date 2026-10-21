@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-BASE = "https://danbooru.donmai.us"
+BASE = os.environ.get("LORA_DANBOORU_BASE", "https://danbooru.donmai.us").rstrip("/")   # 可用环境变量指向镜像 / 反代
 UA = "WWYLoraTrainer/1.0 (dataset-tool)"
 PER_PAGE = 200
 LEVEL_LIMIT = {"member": 2, "anonymous": 2, "restricted": 2, "gold": 6}   # 其余（platinum/builder/…）不限

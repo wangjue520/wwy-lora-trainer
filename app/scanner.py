@@ -21,6 +21,9 @@ SKIP_DIRS = {
     "appdata", "node_modules", ".git", "venv", ".venv", "env", "python", "site-packages", "__pycache__",
     "outputs", "output", "steamapps", "recovery", "msocache", "perflogs", "$windows.~ws", "$winreagent",
     "repositories", "extensions", "custom_nodes", "embeddings", "cache", ".cache", "tmp", "temp",
+    # Linux 上的系统目录 / Python 发行版，进去只会浪费时间
+    "proc", "sys", "dev", "run", "snap", "boot", "usr", "bin", "sbin", "lib", "lib64", "etc", "var", "srv",
+    "miniconda3", "anaconda3", "miniforge3", "conda", "pkgs", "docs", "man", "share", "include",
 }
 MAX_DEPTH = 4
 
@@ -61,7 +64,7 @@ def _sig(path, names):
         entries = {e.lower() for e in os.listdir(path)}
     except OSError:
         return None
-    if "webui.bat" in entries and "modules" in entries and "models" in entries:
+    if ("webui.bat" in entries or "webui.sh" in entries) and "modules" in entries and "models" in entries:
         return "webui"
     if "main.py" in entries and "comfy" in entries and "folder_paths.py" in entries:
         return "comfyui"
@@ -99,9 +102,28 @@ def _walk(root, depth, out):
 
 
 def _drives():
-    if os.name != "nt":
-        return ["/"]
-    return [f"{d}:\\" for d in string.ascii_uppercase if os.path.isdir(f"{d}:\\")]
+    """从哪些目录开始找 WebUI / ComfyUI。Windows 是盘符；Linux 是 home、数据盘这些常见位置。"""
+    if os.name == "nt":
+        return [f"{d}:\\" for d in string.ascii_uppercase if os.path.isdir(f"{d}:\\")]
+    roots = [os.path.expanduser("~"), "/root", "/workspace", "/data", "/mnt", "/opt", "/home"]
+    res, seen = [], set()
+    for p in roots:
+        if not p or not os.path.isdir(p):
+            continue
+        rp = os.path.realpath(p)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        res.append(p)
+    for parent in ("/home", "/mnt", "/workspace"):   # 每个用户目录 / 挂载的数据盘
+        try:
+            for e in os.scandir(parent):
+                if e.is_dir(follow_symlinks=False) and os.path.realpath(e.path) not in seen:
+                    seen.add(os.path.realpath(e.path))
+                    res.append(e.path)
+        except OSError:
+            pass
+    return res
 
 
 def _parse_launcher(path):
@@ -160,16 +182,17 @@ def start_scan_async():
 
 # ---------------- 模型目录 ----------------
 def _webui_arg_dirs(root):
-    """webui-user.bat 里 --ckpt-dir(s) / --vae-dir / --text-encoder-dir 指定的目录。"""
+    """webui-user.bat / webui-user.sh 里 --ckpt-dir(s) / --vae-dir / --text-encoder-dir 指定的目录。"""
     res = []
-    try:
-        txt = open(os.path.join(root, "webui-user.bat"), "r", encoding="utf-8", errors="ignore").read()
-    except OSError:
-        return res
-    for m in re.finditer(r'--(?:ckpt-dirs?|vae-dirs?|text-encoder-dirs?|unet-dirs?)\s+("([^"]+)"|(\S+))', txt):
-        p = m.group(2) or m.group(3)
-        if p and os.path.isdir(p):
-            res.append(p)
+    for fn in ("webui-user.bat", "webui-user.sh"):
+        try:
+            txt = open(os.path.join(root, fn), "r", encoding="utf-8", errors="ignore").read()
+        except OSError:
+            continue
+        for m in re.finditer(r'--(?:ckpt-dirs?|vae-dirs?|text-encoder-dirs?|unet-dirs?)\s+("([^"]+)"|(\'([^\']+)\')|(\S+))', txt):
+            p = m.group(2) or m.group(4) or m.group(5)
+            if p and os.path.isdir(p):
+                res.append(p)
     return res
 
 

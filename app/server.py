@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """本地 HTTP 服务：提供界面（web/）和 JSON 接口（POST /api/<名字>）。只用标准库。"""
+import gzip
 import json
 import mimetypes
 import os
@@ -22,6 +23,7 @@ import gpu
 import jobs
 import models
 import paths
+import plat
 import scanner
 import settings
 import tagging
@@ -153,7 +155,9 @@ def _models_check(a):
         return {"ok": False, "message": info["error"], "info": info}
     if slot and info["kind"] not in slot.kinds:
         return {"ok": False, "message": f"这个文件不是{slot.label}（识别为：{info['kind']}）", "info": info}
-    if slot and not spec.accept(slot, dict(info, name=os.path.basename(p))):
+    if slot and not spec.accept(slot, dict(info, name=os.path.basename(p), path=p)):
+        if not info.get("quant"):
+            return {"ok": False, "message": f"{spec.engine_label or spec.label} 不能用这个文件当{slot.label}", "info": info}
         return {"ok": False, "message": f"这个{slot.label}是量化版（{info.get('qtype') or '低精度'}），不能用来训练，请选 bf16 / fp16 原版", "info": info}
     return {"ok": True, "info": info}
 
@@ -186,7 +190,7 @@ def _fs_list(a):
         if os.name == "nt":
             return {"path": "", "parent": "", "dirs": [{"name": f"{d}:\\", "path": f"{d}:\\"} for d in string.ascii_uppercase
                                                        if os.path.isdir(f"{d}:\\")], "files": []}
-        p = "/"
+        return {"path": "", "parent": "", "dirs": plat.browse_roots(), "files": [], "images": 0}
     dirs, files = [], []
     try:
         for e in sorted(os.scandir(p), key=lambda e: e.name.lower()):
@@ -211,10 +215,7 @@ def _fs_list(a):
 def _fs_open(a):
     p = a.get("path")
     if p and os.path.exists(p):
-        if os.path.isfile(p):
-            subprocess.Popen(["explorer", "/select,", os.path.normpath(p)])
-        else:
-            os.startfile(p) if os.name == "nt" else subprocess.Popen(["xdg-open", p])
+        plat.open_path(p)
     return True
 
 
@@ -231,7 +232,7 @@ def _queue_list(_):
 
 
 START_TIME = time.time()
-_served = {"port": None}
+_served = {"port": None, "host": None}
 _restart_cache = {"at": 0.0, "value": False}
 
 
@@ -262,13 +263,14 @@ def _app_restart(_):
     busy = [j for j in jobs.listing() if j.get("status") == "running"]
     if busy:
         raise ValueError(f"「{busy[0].get('title')}」还在进行，等它结束再重启")
-    args = ["--no-browser", "--wait-port"] + (["--port", str(_served["port"])] if _served["port"] else [])
+    args = ["--no-browser", "--wait-port"] + (["--port", str(_served["port"])] if _served["port"] else []) \
+        + (["--host", str(_served["host"])] if _served.get("host") else [])
     bat = os.path.join(paths.ROOT, "启动LoRA训练器.bat")
     if os.name == "nt" and os.path.isfile(bat):
         subprocess.Popen(["cmd", "/c", "start", "WWY LoRA 训练器", bat] + args, cwd=paths.ROOT, creationflags=0x08000000)
     else:
         subprocess.Popen([sys.executable, "-I", os.path.join(paths.APP, "main.py")] + args, cwd=paths.ROOT,
-                         creationflags=0x00000010 if os.name == "nt" else 0)
+                         **plat.detach_kwargs())
     threading.Timer(1.0, lambda: os._exit(0)).start()   # 先把这次请求的回复发出去
     return True
 
@@ -738,8 +740,15 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)) or body is None or isinstance(body, (bool, int, float, str)) and ctype.startswith("application/json"):
             body = json.dumps(body, ensure_ascii=False, default=str).encode("utf-8")
+        # 文本压缩后再发：云主机的端口代理（仙宫云这类）带宽小，150 KB 的初始化数据不压要好几秒
+        gz = len(body) > 2048 and not ctype.startswith("image/") and "gzip" in (self.headers.get("Accept-Encoding") or "")
+        if gz:
+            body = gzip.compress(body, 5)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         if "Cache-Control" not in (extra or {}):
             self.send_header("Cache-Control", "no-store")
@@ -800,8 +809,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": False, "error": str(e) or e.__class__.__name__})
 
 
-def serve(host, port):
-    _served["port"] = port
+def serve(host, port, extra=False):
+    """extra：再多监听一个端口（同一个训练器，比如云平台的「打开 WebUI」按钮固定开 80 端口）。"""
+    if not extra:
+        _served["port"] = port
+        _served["host"] = host
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     t = threading.Thread(target=httpd.serve_forever, daemon=True)

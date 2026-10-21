@@ -11,6 +11,8 @@ import time
 import traceback
 import uuid
 
+import plat
+
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _jobs = collections.OrderedDict()
@@ -48,7 +50,7 @@ class Job:
         """跑一个子进程，输出逐行写进日志；返回退出码。parse(line) 可以从输出里解析进度。"""
         self.write("$ " + " ".join(f'"{c}"' if " " in str(c) else str(c) for c in cmd))
         self.proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                                     stdin=subprocess.DEVNULL, **plat.popen_kwargs())
         buf = b""
         while True:
             chunk = self.proc.stdout.read1(4096) if hasattr(self.proc.stdout, "read1") else self.proc.stdout.read(1)
@@ -100,13 +102,7 @@ def decode_line(b):
 
 
 def kill_tree(pid):
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
-        else:
-            os.killpg(os.getpgid(pid), 9)
-    except Exception:
-        pass
+    plat.kill_tree(pid)
 
 
 def start(kind, title, fn, *args, on_done=None, **kw):

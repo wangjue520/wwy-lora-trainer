@@ -21,15 +21,17 @@ ENGINES = {
     "musubi-tuner": {"repo": "https://github.com/kohya-ss/musubi-tuner", "branch": "main", "dir": paths.MUSUBI},
 }
 # flash-linear-attention：MOSS-Image 的文本编码器 Qwen3.5 的 Gated DeltaNet 层用它的 Triton 内核（没有就退回很慢的 PyTorch 实现）
-EXTRA_PKGS = ["pillow", "huggingface-hub", "numpy", "dadaptation", "flash-linear-attention==0.5.2"]
+EXTRA_PKGS = ["pillow", "huggingface-hub", "numpy", "dadaptation", "flash-linear-attention==0.5.2",
+              "lycoris-lora==4.0.0"]   # MOSS 专用引擎（moss_trainer）的 LoRA / LoKr / LoHa
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def _git():
-    for g in (os.path.join(paths.ROOT, "git", "cmd", "git.exe"), shutil.which("git")):
-        if g and os.path.isfile(g):
+    if os.name == "nt":
+        g = os.path.join(paths.ROOT, "git", "cmd", "git.exe")   # 整合包自带的 git
+        if os.path.isfile(g):
             return g
-    return None
+    return shutil.which("git")
 
 
 def status():
@@ -104,6 +106,8 @@ def relocate_env():
     """整合包解压到别的文件夹 / 电脑后，训练环境里记着的旧路径改成现在的位置：venv 的 Python 位置（pyvenv.cfg），
     两个引擎的可编辑安装（.pth / __editable__ finder / direct_url.json）。没搬过就什么都不做。返回是否改过。"""
     import glob
+    if os.name != "nt":
+        return False   # Linux 的 venv 脚本里写的是绝对路径，搬家后请直接重建训练环境（比改路径可靠）
     cfg = os.path.join(paths.ENV, "pyvenv.cfg")
     try:
         text = open(cfg, encoding="utf-8").read()
@@ -188,9 +192,9 @@ def fetch_engine(job, name, update=False, ref=None):
     if g:
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)
-        for prefix, proxy, name in netpick.github_prefixes(e["repo"]) or [("", None, "GitHub")]:
+        for prefix, proxy, label in netpick.github_prefixes(e["repo"]) or [("", None, "GitHub")]:
             shutil.rmtree(d, ignore_errors=True)
-            job.write(f"git clone（{name}）")
+            job.write(f"git clone（{label}）")
             rc = job.run_cmd([g, "clone", "--depth", "1", "-b", e["branch"], prefix + e["repo"] + ".git", d],
                              env=netpick.proxy_env(_env(), proxy))
             if rc == 0:
@@ -282,9 +286,42 @@ def onnxruntime_spec():
     return "onnxruntime-gpu>=1.27" if v.startswith("cu13") else "onnxruntime-gpu>=1.20,<1.27"
 
 
+def _venv_bases(base):
+    """能用来建 venv 的解释器，按优先级：指定的那个 → 项目自带的 → conda / 系统的其它版本。"""
+    cands = [base]
+    extra = [os.path.join(paths.ROOT, "python", "bin", "python"),
+             "/root/miniconda3/bin/python", "/opt/conda/bin/python",
+             shutil.which("python3.13"), shutil.which("python3.12"), shutil.which("python3.11"),
+             shutil.which("python3.10"), shutil.which("python3")]
+    for p in extra:
+        if p and os.path.isfile(p) and os.path.abspath(p) not in {os.path.abspath(x) for x in cands}:
+            cands.append(p)
+    return cands
+
+
+def _create_venv(job, base):
+    """建训练环境。Ubuntu 的系统 Python 常常没装 python3-venv（ensurepip 缺失），
+    这时自动换一个带 venv 的解释器（项目自带的 python/、miniconda 等）再试。"""
+    for cand in _venv_bases(base):
+        shutil.rmtree(paths.ENV, ignore_errors=True)
+        job.write(f"用 {cand} 创建训练环境…")
+        rc = job.run_cmd([cand, "-m", "venv", paths.ENV], env=_env())
+        if rc == 0 and paths.env_python():
+            if job.run_cmd([paths.env_python(), "-m", "pip", "--version"], env=_env()) == 0:
+                return
+            job.write("这个 Python 建出来的环境里没有 pip，换一个再试")
+        elif rc == 0:
+            job.write("环境目录建出来了但没有 python，换一个再试")
+        else:
+            job.write("这个 Python 不能建 venv（缺 ensurepip / python3-venv），换一个再试")
+    shutil.rmtree(paths.ENV, ignore_errors=True)
+    raise RuntimeError("创建虚拟环境失败：系统 Python 缺 venv / ensurepip。"
+                       "Ubuntu / Debian 装一下 python3-venv（apt install -y python3-venv），"
+                       "或用 PYTHON=/root/miniconda3/bin/python ./install.sh 指定一个带 venv 的 Python。")
+
+
 def install(job, repair=False, reinstall_torch=False):
     """完整安装 / 修复。可重复执行，已经装好的部分会很快跳过。"""
-    steps = 6
     job.set_progress(0.02, "准备训练引擎代码")
     pv = pins()
     for n in ENGINES:
@@ -293,9 +330,7 @@ def install(job, repair=False, reinstall_torch=False):
     if not paths.env_python():
         base = paths.base_python()
         job.write(f"用 {base} 创建训练环境 {paths.ENV}")
-        rc = job.run_cmd([base, "-m", "venv", paths.ENV], env=_env())
-        if rc != 0 or not paths.env_python():
-            raise RuntimeError("创建虚拟环境失败。请确认训练器目录下的 python 文件夹完整，或在设置里重新安装。")
+        _create_venv(job, base)
         _pip(job, ["-U", "pip", "setuptools", "wheel"])
     job.set_progress(0.15, "下载安装 PyTorch（约 2.7 GB，这一步没有进度条，10 MB/s 网速约 5 分钟）")
     tinfo = install_torch(job, force=reinstall_torch)
@@ -313,7 +348,12 @@ def _deps(job, torch_ver, upgrade=False, p0=0.6):
     job.set_progress(p0 + (1 - p0) * 0.4, "安装 musubi-tuner")
     _pip(job, ["-e", paths.MUSUBI])
     job.set_progress(p0 + (1 - p0) * 0.65, "安装反推和加速组件")
-    _pip(job, EXTRA_PKGS + [onnxruntime_spec()])
+    try:
+        _pip(job, EXTRA_PKGS + [onnxruntime_spec()])
+    except Exception as e:
+        # flash-linear-attention 是 MOSS-Image 文本编码器的加速项，装不上只影响速度，不该挡住整个环境
+        job.write(f"⚠ 加速组件没全装上（{e}），先装其余依赖")
+        _pip(job, [p for p in EXTRA_PKGS if not p.startswith("flash-linear-attention")] + [onnxruntime_spec()])
     m = re.match(r"(\d+)\.(\d+)", torch_ver or "")
     if os.name == "nt" and m and int(m.group(1)) == 2 and int(m.group(2)) >= 6:
         tm = int(m.group(2)) - 4

@@ -6,6 +6,7 @@
 队列状态（data/queue.json）重启训练器后保留；正在训练的任务在重启后标为「已中断」。"""
 import copy
 import json
+import math
 import os
 import re
 import shutil
@@ -19,6 +20,7 @@ import diagnose
 import gpu
 import models
 import paths
+import plat
 import settings
 from jobs import kill_tree, decode_line, NO_WINDOW
 
@@ -404,7 +406,10 @@ def _worker():
                 _state["proc"] = None
         if settings.load().get("shutdown_after_queue") and not _state["paused"] and any(x["status"] == "done" for x in _tasks):
             if not any(x["status"] == "queued" for x in _tasks):
-                subprocess.run(["shutdown", "/s", "/t", "120"], creationflags=NO_WINDOW)
+                try:
+                    plat.shutdown()
+                except Exception:
+                    pass
     finally:
         _state["running"] = False
 
@@ -449,7 +454,7 @@ def _run_task(t):
             log(f"[提示] 多卡训练：使用显卡 {', '.join(gpus)}，共 {len(gpus)} 个进程；每张卡各跑「单批数量」张图。")
         with open(os.path.join(td, "commands.txt"), "w", encoding="utf-8") as f:
             for s in steps:
-                f.write(s["name"] + ":\n" + subprocess.list2cmdline([paths.env_python() or "python"] + s["cmd"]) + "\n\n")
+                f.write(s["name"] + ":\n" + plat.quote_cmd([s.get("python") or paths.env_python() or "python"] + s["cmd"]) + "\n\n")
         r = t.get("resume")
         lr_file = os.path.join(td, "actual_lr.tsv")
         if r:   # 续训：训练命令加上续训参数，曲线保留已经练过的部分
@@ -549,13 +554,8 @@ def _reap_children(pid, proc, wait=20):
     if proc.stdout.closed:
         return
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              f"Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
-                              f"Where-Object {{ $_.CommandLine -like '*parent_pid={pid},*' }} | ForEach-Object {{ $_.ProcessId }}"],
-                             capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW).stdout
-        for x in out.split():
-            if x.isdigit():
-                kill_tree(int(x))
+        for x in plat.pids_with(f"parent_pid={pid},"):
+            kill_tree(int(x))
     except Exception:
         pass
 
@@ -580,7 +580,7 @@ def _freeze_done(t, td, tail, log):
 
 
 def _run_step(t, s, log):
-    py = paths.env_python()
+    py = s.get("python") or paths.env_python()   # 步骤可以指定自己的解释器
     if not py:
         raise RuntimeError("训练环境还没安装")
     gpus = t.get("gpus") or settings.gpu_list()
@@ -610,9 +610,9 @@ def _run_step(t, s, log):
             env["LORA_ACTUAL_LR_BASE"] = str(r.get("base") or 0)
     with _lock:
         _state["step_kind"] = s["kind"]
-    log("$ " + subprocess.list2cmdline(cmd))
+    log("$ " + plat.quote_cmd(cmd))
     proc = subprocess.Popen(cmd, cwd=s["cwd"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                            stdin=subprocess.DEVNULL, **plat.popen_kwargs())
     with _lock:
         _state["proc"] = proc
     tail = []
@@ -622,6 +622,49 @@ def _run_step(t, s, log):
 
     def handle(line):
         nonlocal last_prog_log
+        # MOSS 专用引擎每轮的预览图存在任务目录里：出一张就复制到输出目录的 sample/，「训练中测试」页马上能看到
+        if s.get("preview_name") and line.startswith("Saved preview "):
+            src = line[len("Saved preview "):].strip()
+            m = re.search(r"epoch-(\d+)\.png$", src)
+            if m and os.path.isfile(src):
+                try:
+                    d = os.path.join(t.get("output_dir") or paths.OUTPUT, "sample")
+                    os.makedirs(d, exist_ok=True)
+                    shutil.copy2(src, os.path.join(d, f"{s['preview_name']}_e{int(m.group(1)):06d}_01_{time.strftime('%Y%m%d%H%M%S')}.png"))
+                except OSError:
+                    pass
+        # MOSS 专用引擎（moss_trainer）每步打一行 JSON：{"step":..,"loss":..,"max_epochs":..,"batches_per_epoch":..}
+        if s["kind"] == "train" and line.startswith("{") and '"step"' in line:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                d = None
+            if d and "loss" in d and "step" in d:
+                step = int(d["step"])
+                acc = max(1, int((t.get("params") or {}).get("grad_accum") or 1))
+                batches = max(1, int(d.get("batches_per_epoch") or 1))
+                total = int(d.get("max_epochs") or 0) * max(1, math.ceil(batches / acc))
+                if total:
+                    t["steps_total"] = total
+                prog = dict(t.get("progress") or {})
+                prog.update(step=step, total=total or t.get("steps_total") or 0,
+                            elapsed=f"{d.get('elapsed_seconds') or 0:.0f}s", eta="",
+                            loss=float(d["loss"]), grad_norm=d.get("grad_norm"), lr=d.get("lr"))
+                if not loss_hist or loss_hist[-1][0] != step:
+                    loss_hist.append([step, float(d["loss"])])
+                    if len(loss_hist) > 2000:
+                        del loss_hist[::2]
+                prog["loss_hist"] = loss_hist
+                if d.get("max_epochs"):
+                    prog["epoch"] = f"{d.get('epoch')}/{d.get('max_epochs')}"
+                prog["vram_gb"] = d.get("peak_reserved_gib")
+                with _lock:
+                    t["progress"] = prog
+                if time.time() - last_prog_log >= 2:
+                    last_prog_log = time.time()
+                    log(f"step {step}/{total} · loss {d['loss']:.4f} · epoch {prog.get('epoch', '')} · "
+                        f"{d.get('elapsed_seconds', 0)}s")
+                return
         m = RE_STEPS.search(line)
         if m and s["kind"] == "train":
             step, total = int(m.group(2)), int(m.group(3))

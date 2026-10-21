@@ -13,8 +13,8 @@ PRESETS_FILE = os.path.join(paths.DATA, "presets.json")
 
 DEFAULTS = {
     "port": 28100,
-    "host": "127.0.0.1",
-    "open_browser": True,          # 启动后自动打开界面
+    "host": os.environ.get("LORA_TRAINER_HOST") or "127.0.0.1",   # 云主机 / 容器上用 0.0.0.0
+    "open_browser": os.name == "nt",          # 服务器上没有浏览器，别去调它
     "network": "auto",             # auto / cn / global
     "network_detected": "",        # auto 模式下检测出来的结果
     "proxy_url": "",               # 自定义代理（VPN 没开「系统代理」模式时填，例如 http://127.0.0.1:7890）

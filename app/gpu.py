@@ -4,6 +4,8 @@ import os
 import subprocess
 import time
 
+import plat
+
 _cache = {"t": 0, "v": None}
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -47,31 +49,22 @@ def info(max_age=5):
 
 
 # 这些进程绝不能结束：系统组件、桌面、浏览器（训练器界面就开在浏览器里）
-PROTECTED = {"explorer.exe", "dwm.exe", "csrss.exe", "winlogon.exe", "shellhost.exe", "searchhost.exe", "startmenuexperiencehost.exe",
-             "textinputhost.exe", "shellexperiencehost.exe", "applicationframehost.exe", "widgets.exe", "lockapp.exe",
-             "crossdeviceresume.exe", "phoneexperiencehost.exe", "systemsettings.exe", "msedge.exe", "chrome.exe", "firefox.exe",
-             "msedgewebview2.exe", "brave.exe", "opera.exe", "claude.exe", "nvcontainer.exe", "nvidia share.exe",
-             "nvidia overlay.exe", "nvdisplay.container.exe", "rtss.exe", "obs64.exe"}
+PROTECTED_WIN = {"explorer.exe", "dwm.exe", "csrss.exe", "winlogon.exe", "shellhost.exe", "searchhost.exe", "startmenuexperiencehost.exe",
+                 "textinputhost.exe", "shellexperiencehost.exe", "applicationframehost.exe", "widgets.exe", "lockapp.exe",
+                 "crossdeviceresume.exe", "phoneexperiencehost.exe", "systemsettings.exe", "msedge.exe", "chrome.exe", "firefox.exe",
+                 "msedgewebview2.exe", "brave.exe", "opera.exe", "claude.exe", "nvcontainer.exe", "nvidia share.exe",
+                 "nvidia overlay.exe", "nvdisplay.container.exe", "rtss.exe", "obs64.exe"}
+# Linux：桌面 / 远程桌面 / Jupyter（仙宫云、AutoDL 这类镜像里就靠它开终端）/ 容器运行时
+PROTECTED_NIX = {"xorg", "xwayland", "gnome-shell", "kwin_x11", "kwin_wayland", "plasmashell", "systemd", "sshd",
+                 "jupyter", "jupyter-lab", "jupyterhub", "jupyter-notebook", "code-server", "dockerd", "containerd"}
+PROTECTED = PROTECTED_WIN if os.name == "nt" else PROTECTED_NIX
 
 
 def _cmdlines(pids):
-    """Windows：取进程命令行，用来认出 WebUI / ComfyUI。"""
-    if os.name != "nt" or not pids:
+    """取进程命令行，用来认出 WebUI / ComfyUI（Linux 读 /proc，Windows 用 PowerShell）。"""
+    if not pids:
         return {}
-    flt = " or ".join(f"ProcessId={p}" for p in pids)
-    ps = f"Get-CimInstance Win32_Process -Filter '{flt}' | ForEach-Object {{ \"$($_.ProcessId)`t$($_.CommandLine)\" }}"
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=15,
-                           creationflags=NO_WINDOW, encoding="utf-8", errors="replace")
-        res = {}
-        for line in r.stdout.splitlines():
-            if "\t" in line:
-                a, b = line.split("\t", 1)
-                if a.strip().isdigit():
-                    res[int(a)] = b.strip()
-        return res
-    except Exception:
-        return {}
+    return {pid: plat.cmdline(pid) for pid in pids}
 
 
 def _label(name, cmd):
@@ -103,8 +96,10 @@ def processes(exclude_pids=()):
             if pid in exclude_pids or pid == os.getpid():
                 continue
             name = os.path.basename(parts[1].replace("\\", "/"))
-            path = parts[1].lower().replace("/", "\\")
-            if name.lower() in PROTECTED or "\\windows\\" in path or "\\windowsapps\\" in path:
+            path = parts[1].lower()
+            if name.lower() in PROTECTED:
+                continue
+            if os.name == "nt" and ("\\windows\\" in path.replace("/", "\\") or "\\windowsapps\\" in path.replace("/", "\\")):
                 continue
             try:
                 mb = int(parts[2])
@@ -128,8 +123,9 @@ def kill(pids):
         if pid not in allowed:
             continue
         try:
+            # 只结束这个进程：Linux 上它可能和 Jupyter / 桌面在同一个进程组，整组杀会误伤
             if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
+                plat.kill_tree(pid)
             else:
                 os.kill(pid, 9)
             done.append(pid)

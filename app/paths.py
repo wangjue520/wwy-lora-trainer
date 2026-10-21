@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """训练器用到的所有目录。代码在 app/，其余目录都相对项目根目录。"""
 import os
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,12 +25,19 @@ for _d in (DATA, TASKS, BACKUPS, ENGINES, TAGGER_MODELS, DOWNLOADS, OUTPUT):
 
 
 def env_python():
-    """训练环境的 python.exe（还没装好时返回 None）。"""
+    """训练环境的 python（还没装好时返回 None）。"""
     p = os.path.join(ENV, "Scripts", "python.exe") if os.name == "nt" else os.path.join(ENV, "bin", "python")
     return p if os.path.isfile(p) else None
 
 
+
 def base_python():
-    """创建训练环境用的 Python：优先项目自带的便携版，否则用运行界面的这个解释器。"""
-    p = os.path.join(ROOT, "python", "python.exe")
-    return p if os.path.isfile(p) else sys.executable
+    """创建训练环境用的 Python：优先项目自带的便携版（Windows 整合包 / Linux 上 conda 建在 python/），否则用系统 Python。"""
+    for p in (os.path.join(ROOT, "python", "python.exe"), os.path.join(ROOT, "python", "bin", "python")):
+        if os.path.isfile(p):
+            return p
+    exe = sys.executable
+    # 别拿训练环境自己的解释器去重建训练环境
+    if os.path.abspath(exe).startswith(os.path.abspath(ENV) + os.sep):
+        exe = shutil.which("python3") or shutil.which("python") or exe
+    return exe

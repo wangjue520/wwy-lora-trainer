@@ -142,7 +142,7 @@ def preflight(task):
         if not err and path.lower().endswith((".safetensors", ".sft")):
             import safetensors_meta as stm
             info = stm.classify(path)
-            if not spec.accept(s, dict(info, name=os.path.basename(path))):
+            if not spec.accept(s, dict(info, name=os.path.basename(path), path=path)):
                 issues.append({"level": "error", "code": "wrong_model", "title": f"{s.label}选错了文件",
                                "reason": f"{os.path.basename(path)} 识别为「{info['kind']}」{'（量化版）' if info.get('quant') else ''}，"
                                          f"不是可以用来训练的{s.label}。请到「模型设置」重新选择。",
@@ -449,7 +449,16 @@ def lower_vram_values(task, spec):
 def ram_gb():
     """(总内存, 可用内存) GB；拿不到返回 (0, 0)。"""
     if os.name != "nt":
-        return 0, 0
+        try:
+            info = {}
+            with open("/proc/meminfo", encoding="ascii", errors="ignore") as f:
+                for line in f:
+                    k, _, v = line.partition(":")
+                    if k in ("MemTotal", "MemAvailable"):
+                        info[k] = int(v.split()[0]) / 1024 / 1024
+            return info.get("MemTotal", 0), info.get("MemAvailable", 0)
+        except (OSError, ValueError, IndexError):
+            return 0, 0
     import ctypes
 
     class MS(ctypes.Structure):

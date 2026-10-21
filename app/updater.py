@@ -47,7 +47,9 @@ def update_self(job):
             rel = n[len(top):]
             if not rel or rel.endswith("/"):
                 continue
-            if not rel.startswith(("app/", "web/", "scripts/")) and rel not in ("启动LoRA训练器.bat", "version.json", "README.md"):
+            if not rel.startswith(("app/", "web/", "scripts/")) and rel not in (
+                    "启动LoRA训练器.bat", "version.json", "README.md",
+                    "run.sh", "install.sh", "start.sh", "stop.sh", "README-Linux.md"):
                 continue
             dst = os.path.join(paths.ROOT, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
