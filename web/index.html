@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WWY LoRA 训练器</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-launch" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-models" viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8-9-9z"/><circle cx="8" cy="9" r="1.6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13 7l4 4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 3 3 4-4 4 4"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.1-2.1 2.7-2.5z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v10m0 0l-4-4m4 4l4-4"/><path d="M5 19h14"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></symbol>
+  </defs>
+</svg>
+
+<div id="layout">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">LoRA</div>
+      <div class="brand-text">
+        <div class="brand-name">WWY 训练器</div>
+        <div class="brand-sub">LORA TRAINER</div>
+        <div class="brand-ver" id="app-version"></div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button class="nav-item" data-page="train"><svg><use href="#i-launch"/></svg><span>启动训练</span></button>
+      <button class="nav-item" data-page="model"><svg><use href="#i-models"/></svg><span>模型设置</span></button>
+      <button class="nav-item" data-page="params"><svg><use href="#i-settings"/></svg><span>高级参数</span></button>
+      <button class="nav-item" data-page="crawl"><svg><use href="#i-download"/></svg><span>图片爬取</span></button>
+      <button class="nav-item" data-page="tag"><svg><use href="#i-tag"/></svg><span>标签反推</span></button>
+      <button class="nav-item" data-page="editor"><svg><use href="#i-edit"/></svg><span>标签编辑</span></button>
+      <button class="nav-item" data-page="sample"><svg><use href="#i-image"/></svg><span>训练中测试</span></button>
+      <button class="nav-item" data-page="settings"><svg><use href="#i-wrench"/></svg><span>训练器设置</span></button>
+    </nav>
+    <section class="gpu-mon" id="gpu-mon"></section>
+    <div class="sidebar-footer">
+      <button type="button" class="status-pill" id="global-status" data-state="idle"><span class="dot"></span><span id="global-status-text">队列空闲</span></button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <span class="page-mark">▼</span>
+      <div class="page-head"><span id="page-code">01 // TRAIN</span><h1 id="page-title">启动训练</h1></div>
+      <div id="topbar-extra"><div class="topbar-clock"><b id="topbar-clock">00:00:00</b>WWY · LORA TRAINER</div></div>
+    </header>
+    <div id="content">
+
+      <!-- ===== 01 启动训练 ===== -->
+      <section class="page" id="page-train">
+        <div class="card">
+          <div class="card-title">当前训练配置<span class="card-title-hint">点击任一格跳到对应页面修改；加入队列时会把当前配置复制成一个独立任务</span></div>
+          <div class="summary" id="train-summary"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">保存位置<span class="card-title-hint">训练好的 LoRA 存到这里</span></div>
+          <div class="row">
+            <input type="text" id="train-outdir" placeholder="LoRA 保存文件夹">
+            <button class="btn" id="train-outdir-browse">浏览…</button>
+            <button class="btn" id="train-outdir-open">打开</button>
+          </div>
+          <label class="chk-row" style="margin-top:8px"><input type="checkbox" id="train-subdir" checked><i></i><span>每个任务单独建一个子文件夹（按保存名称命名），测试图也放在里面</span></label>
+          <div class="hint" id="train-outdir-hint"></div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-primary btn-lg" id="train-start"><svg class="btn-icon"><use href="#i-launch"/></svg>开始训练</button>
+          <button class="btn btn-lg" id="train-add"><svg class="btn-icon"><use href="#i-plus"/></svg>加入队列</button>
+          <button class="btn btn-lg" id="train-freeze" disabled data-tip="保存当前训练进度后停下、释放全部显存（比如要去玩游戏）。之后在队列里点「继续」从这一步接着练，效果和没停过一样。">❄ 冻结</button>
+          <button class="btn btn-lg btn-danger" id="train-stop" disabled><svg class="btn-icon"><use href="#i-stop"/></svg>停止当前</button>
+          <button class="btn" id="train-pause">训完当前就暂停队列</button>
+          <div class="status-pill" id="train-status" data-state="idle"><span class="dot"></span><span id="train-status-text">队列空闲</span></div>
+          <div style="margin-left:auto" class="row">
+            <select id="preset-select" style="width:170px"><option value="">配置存档…</option></select>
+            <button class="btn btn-sm" id="preset-load">读取</button>
+            <button class="btn btn-sm" id="preset-save">存档当前配置</button>
+            <button class="btn btn-sm" id="preset-del">删除</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">训练队列<span class="card-title-hint">多个任务按顺序自动训练；拖动顺序用 ↑↓</span>
+            <span class="right"><button class="btn btn-sm" id="queue-clear">清除已完成</button></span></div>
+          <div class="queue" id="queue-list"></div>
+        </div>
+        <div class="card" id="train-detail">
+          <div class="card-title"><span id="td-title">训练曲线</span><span class="card-title-hint" id="td-sub"></span>
+            <span class="right">
+              <label class="chk-row"><input type="checkbox" id="log-follow" checked><i></i><span>自动滚动</span></label>
+              <button class="btn btn-sm" id="td-cmd">查看命令</button>
+              <button class="btn btn-sm" id="td-copy">复制日志</button>
+              <button class="btn btn-sm" id="td-open">打开输出</button>
+            </span></div>
+          <div class="train-stats" id="td-stats"></div>
+          <div class="prog y" id="td-prog" style="margin-bottom:10px"><i></i></div>
+          <div class="charts" id="td-charts"></div>
+          <details class="raw-log" id="td-logwrap"><summary>原始日志<span class="muted">（已隐藏进度条刷屏，报错和关键信息都在）</span></summary>
+            <div class="log-box" id="log-box"></div></details>
+        </div>
+      </section>
+
+      <!-- ===== 02 模型设置 ===== -->
+      <section class="page" id="page-model">
+        <div class="card">
+          <div class="card-title">选择要训练的底模<span class="card-title-hint">选择后会自动从电脑里的 WebUI / ComfyUI / 共享模型库找到对应的模型文件</span></div>
+          <div class="spec-cards" id="spec-cards"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">模型文件<span class="card-title-hint" id="slots-hint">下拉框里只列出和这个底模匹配的文件（按文件内容识别，不看文件名）；已按「优先 base 模型」自动选好</span>
+            <span class="right"><button class="btn btn-sm" id="slots-refresh">刷新列表</button></span></div>
+          <div id="slots"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">自动搜索<span class="card-title-hint" id="scan-hint"></span>
+            <span class="right"><button class="btn btn-sm" id="scan-add">添加搜索目录…</button><button class="btn btn-sm" id="scan-start">重新搜索电脑</button></span></div>
+          <div class="installs" id="installs"></div>
+        </div>
+      </section>
+
+      <!-- ===== 03 高级参数 ===== -->
+      <section class="page" id="page-params">
+        <div class="card p-head">
+          <div class="big-toggle" id="p-top"></div>
+          <div class="p-vram">
+            <div class="p-vram-info"><div class="gpu-name" id="pv-gpu">—</div><div class="hint" id="pv-gpu-sub"></div></div>
+            <div class="presets" id="pv-presets"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">训练长度<span class="card-title-hint">重复次数、单批数量、轮数直接在格子里改</span>
+            <span class="right"><div class="seg" id="p-mode"><button data-v="epochs">按轮数</button><button data-v="steps">按总步数</button></div></span></div>
+          <div class="steps-calc" id="steps-calc"></div>
+          <div class="calc-foot"><div id="p-calc-sw"></div><div class="hint" id="steps-sub"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">基础参数<span class="card-title-hint" id="p-basic-hint"></span>
+            <span class="right"><button class="btn btn-sm" id="p-check-ds">检查训练集</button><button class="btn btn-sm" id="p-reset">恢复默认值</button></span></div>
+          <div class="fields cols5" id="p-basic"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">学习率与优化器</div>
+          <div class="fields" id="p-lr"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">其他高级设置<span class="card-title-hint" id="p-adv-hint">一般保持默认即可；改过的项左边有黄色标记</span></div>
+          <div class="adv-tabs" id="p-adv-tabs"></div>
+          <div id="p-adv"></div>
+        </div>
+      </section>
+
+      <!-- ===== 04 图片爬取 ===== -->
+      <section class="page" id="page-crawl">
+        <div class="card">
+          <div class="card-title">搜索条件<span class="card-title-hint" id="cr-dict-hint">Danbooru · 输入中文或英文都能找到 D 站标签</span><button class="btn btn-sm" id="cr-dict-dl" hidden style="margin-left:auto">下载中英字典</button></div>
+          <div class="fields">
+            <div class="field span2"><label><span>标签</span><i class="q" data-tip="只能放 Danbooru 正式标签：输入中文 / 英文 / 别名都能搜，回车或点候选添加，别名自动换成正式名。前面加 - 表示排除（-comic），加 ~ 表示任意一个。名额不够时会自动把一部分标签改到本地筛，不会报错。">?</i></label>
+              <div id="cr-tags"></div></div>
+            <div class="field"><label><span>标签关系</span></label><div class="seg" id="cr-logic"><button data-v="and">全部包含</button><button data-v="or">包含任意一个</button></div></div>
+            <div class="field"><label><span>排序</span></label><select id="cr-order">
+              <option value="score">分数从高到低</option><option value="fav">收藏从多到少</option><option value="new">最新上传</option>
+              <option value="old">最早上传</option><option value="random">随机</option><option value="score_asc">分数从低到高</option><option value="fav_asc">收藏从少到多</option></select></div>
+            <div class="field"><label><span>下载数量</span><i class="q" data-tip="0 = 不限（把符合条件的全部下载）">?</i></label><input type="number" id="cr-count" min="0"></div>
+            <div class="field"><label><span>最低分数</span></label><input type="number" id="cr-score"></div>
+            <div class="field"><label><span>最低收藏</span></label><input type="number" id="cr-fav" min="0"></div>
+            <div class="field"><label><span>短边至少（像素）</span><i class="q" data-tip="训练集建议 768 以上，小图训练效果差。0 = 不限。">?</i></label><input type="number" id="cr-side" min="0" step="64"></div>
+            <div class="field"><label><span>起始日期</span></label><input type="date" id="cr-from"></div>
+            <div class="field"><label><span>结束日期</span></label><input type="date" id="cr-to"></div>
+            <div class="field span2"><label><span>分级</span><i class="q" data-tip="都不勾 = 全部分级">?</i></label><div class="row" id="cr-ratings" style="gap:6px"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">过滤</div>
+          <div class="fields">
+            <div class="field wide"><label><span>过滤预设</span><i class="q" data-tip="点预设名套用；点 ✎ 修改预设内容（标签、开关、套用方式），也可以新建自己的预设。「替换」型会重新填必须包含 / 黑名单 / 过滤开关，「追加」型只往黑名单里加。">?</i></label>
+              <div class="row" style="flex-wrap:wrap;gap:6px" id="cr-presets"></div></div>
+            <div class="field wide"><label><span>必须包含</span><i class="q" data-tip="每张图都得有这些标签，例如 solo（单人）。在本地筛，不占搜索名额。">?</i></label>
+              <div id="cr-must"></div></div>
+            <div class="field wide"><label><span>黑名单标签</span><i class="q" data-tip="含有任意一个就跳过，支持 * 通配符，例如 *_focus。画师名和 lowres 这类 meta 标签也有效。">?</i></label>
+              <div id="cr-bl"></div></div>
+          </div>
+          <div class="switches" id="cr-sw"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">保存</div>
+          <div class="fields">
+            <div class="field span2"><label><span>保存位置</span></label><div class="row"><input type="text" id="cr-out" class="grow"><button class="btn" id="cr-out-browse">浏览…</button><button class="btn" id="cr-out-open">打开</button></div></div>
+            <div class="field"><label><span>分文件夹</span></label><select id="cr-folder"><option value="none">不分（全放一起）</option><option value="character">按角色</option><option value="copyright">按作品</option><option value="artist">按画师</option></select></div>
+            <div class="field"><label><span>触发词</span><i class="q" data-tip="写在每个标签文件最前面">?</i></label><input type="text" id="cr-trigger"></div>
+            <div class="field span2"><label><span>标签里去掉这些</span><i class="q" data-tip="生成 .txt 时删掉的标签，例如 1girl solo">?</i></label><input type="text" id="cr-capex"></div>
+          </div>
+          <div class="switches" id="cr-sw2"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Danbooru 账号<span class="card-title-hint">可选。普通会员和匿名一样每次只能用 2 个标签，Gold 6 个；登录后能拿到部分受限图片</span></div>
+          <div class="row" style="flex-wrap:wrap"><input type="text" id="cr-login" placeholder="用户名" style="width:180px"><input type="password" id="cr-key" placeholder="API Key（网页 我的账号 → API Key）" style="width:300px">
+            <button class="btn" id="cr-check">检查账号</button><span class="hint" id="cr-acc" style="margin:0"></span></div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-primary btn-lg" id="cr-start">开始爬取</button>
+          <button class="btn btn-lg btn-danger" id="cr-stop" disabled>停止</button>
+          <button class="btn btn-lg" id="cr-use" hidden>设为训练集并去编辑标签 →</button>
+          <div style="flex:1;min-width:220px"><div class="prog" id="cr-prog"><i></i></div><div class="hint" id="cr-prog-text"></div></div>
+        </div>
+        <div class="card"><div class="card-title">爬取日志</div><div class="log-box" id="cr-log" style="height:300px"></div></div>
+      </section>
+
+      <!-- ===== 05 标签反推 ===== -->
+      <section class="page" id="page-tag">
+        <div class="card">
+          <div class="card-title">训练集<span class="card-title-hint">默认就是「高级参数」里的训练集位置</span></div>
+          <div class="row"><input type="text" id="tag-dir"><button class="btn" id="tag-dir-browse">浏览…</button><button class="btn" id="tag-dir-sync">用高级参数里的</button></div>
+          <div class="hint" id="tag-dir-hint"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">反推方式<span class="card-title-hint" id="tag-mode-hint"></span></div>
+          <div class="mode-cards" id="tag-modes"></div>
+        </div>
+        <div class="grid2">
+          <div class="card" id="tag-opt-card"><div class="card-title" id="tag-opt-title">选项</div><div id="tag-opts"></div></div>
+          <div class="card">
+            <div class="card-title">写入标签文件</div>
+            <div class="form-grid">
+              <label>触发词</label><input type="text" id="tag-trigger" placeholder="例如 anon_style，多个用逗号分隔；会放在每个标签文件最前面">
+              <label>自动整理触发词</label><div class="row" style="gap:10px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="tag-autotrig"><i></i><span>反推完自动判断主触发词、角色特征、服装并排到标签最前面</span></label>
+                <div class="seg" id="tag-trigmode"><button data-v="freq">出现最多</button><button data-v="typical">典型图片</button></div></div>
+              <label>已有标签</label>
+              <div class="seg" id="tag-existing"><button data-v="overwrite" class="on">覆盖</button><button data-v="append">追加</button><button data-v="skip">跳过已有的</button></div>
+              <label>标签扩展名</label><input type="text" id="tag-ext" value=".txt" style="width:90px">
+            </div>
+            <div class="hint">反推前不会备份；想保留旧标签请选「追加」或「跳过」。完成后可在「标签编辑」里撤销批量修改。</div>
+          </div>
+        </div>
+        <div class="action-row" style="margin-top:14px">
+          <button class="btn btn-primary btn-lg" id="tag-start">开始反推</button>
+          <button class="btn btn-lg btn-danger" id="tag-stop" disabled>停止</button>
+          <button class="btn btn-lg" id="tag-goedit">去编辑这组标签 →</button>
+          <div class="grow" style="flex:1;min-width:200px"><div class="prog" id="tag-prog"><i></i></div><div class="hint" id="tag-prog-text"></div></div>
+        </div>
+        <div class="card"><div class="card-title">反推结果</div><div class="log-box" id="tag-log" style="height:260px"></div></div>
+      </section>
+
+      <!-- ===== 05 标签编辑 ===== -->
+      <section class="page wide" id="page-editor">
+        <div class="ed-top">
+          <input type="text" id="ed-dir" style="flex:1;min-width:260px" placeholder="训练集文件夹">
+          <button class="btn" id="ed-browse">浏览…</button>
+          <button class="btn" id="ed-reload">刷新</button>
+          <input type="text" id="ed-search" placeholder="搜索标签 / 文字" style="width:180px">
+          <div class="seg" id="ed-filter"><button data-v="all" class="on">全部</button><button data-v="nocap">无标签</button><button data-v="sel">已选</button></div>
+          <button class="btn" id="ed-trigger" title="自动判断主触发词、角色特征、服装，并整理全部标签（勾选一张图再点 = 用它当典型图片）">✦ 触发词</button>
+          <button class="btn" id="ed-undo" title="撤销上一次批量操作">撤销批量</button>
+        </div>
+        <div class="ed-top" id="ed-batch">
+          <span class="muted" id="ed-scope">作用于：全部图片</span>
+          <input type="text" id="ed-b-tags" placeholder="标签，逗号分隔" style="width:200px">
+          <button class="btn btn-sm" data-op="add-front">加到最前</button>
+          <button class="btn btn-sm" data-op="add-back">加到最后</button>
+          <button class="btn btn-sm" data-op="remove">删除这些标签</button>
+          <span class="muted">|</span>
+          <input type="text" id="ed-b-find" placeholder="查找" style="width:130px">
+          <input type="text" id="ed-b-rep" placeholder="替换为" style="width:130px">
+          <button class="btn btn-sm" data-op="find_replace">替换</button>
+          <span class="muted">|</span>
+          <button class="btn btn-sm" data-op="dedupe">去重</button>
+          <button class="btn btn-sm" data-op="sort">按频率整理</button>
+          <button class="btn btn-sm" data-op="trigger">设置触发词</button>
+          <button class="btn btn-sm btn-danger" data-op="clear">清空</button>
+        </div>
+        <div class="ed-wrap">
+          <div class="ed-pane">
+            <div class="ed-pane-h">标签统计<span class="right"><select id="ed-tag-sort" style="height:24px;font-size:11px"><option value="count">按数量</option><option value="alpha">按字母</option></select></span></div>
+            <div class="ed-pane-b tag-list" id="ed-tags"></div>
+          </div>
+          <div class="ed-pane">
+            <div class="ed-pane-h"><span id="ed-count">图片</span><span class="right">
+              <button class="btn btn-sm" id="ed-selall">全选</button><button class="btn btn-sm" id="ed-selnone">取消选择</button>
+              <select id="ed-size" style="height:24px;font-size:11px"><option value="110">小图</option><option value="140" selected>中图</option><option value="200">大图</option></select></span></div>
+            <div class="ed-pane-b"><div class="thumbs" id="ed-thumbs"></div></div>
+          </div>
+          <div class="ed-pane ed-detail">
+            <div class="ed-pane-h"><span id="ed-cur-name">未选择图片</span><span class="right">
+              <button class="icon-btn" id="ed-prev" title="上一张（Alt+←）">◀</button><button class="icon-btn" id="ed-next" title="下一张（Alt+→）">▶</button></span></div>
+            <div class="ed-pane-b">
+              <img class="ed-img" id="ed-img" alt="" hidden>
+              <div style="padding:8px 10px 0" class="row">
+                <div class="seg" id="ed-view"><button data-v="chips" class="on">标签</button><button data-v="text">文本</button></div>
+                <label class="chk-row" title="D 站标签查中英字典；自然语言长句用本地模型或 API 翻译（只用来看，不改标签文件）"><input type="checkbox" id="ed-zh-on"><i></i><span>显示中文</span></label>
+                <span class="hint" id="ed-saved" style="margin:0 0 0 auto"></span>
+              </div>
+              <div class="ed-zh" id="ed-zh" hidden>
+                <div class="ed-zh-text" id="ed-zh-text"></div>
+                <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap" id="ed-zh-act">
+                  <select id="ed-zh-engine" style="height:26px;font-size:12px;flex:1 1 100%;min-width:0"><option value="qwen3vl4b">本地 Qwen3-VL-4B（约 9 GB 显存）</option><option value="qwen3vl8b">本地 Qwen3-VL-8B（约 17 GB 显存）</option><option value="api">API（用「标签反推」页的 API 设置）</option></select>
+                  <button class="btn btn-sm" id="ed-zh-one">翻译这张</button><button class="btn btn-sm" id="ed-zh-all">翻译整个训练集</button>
+                  <span class="hint" id="ed-zh-prog" style="margin:0"></span>
+                </div>
+              </div>
+              <div class="chips" id="ed-chips"></div>
+              <div style="padding:0 10px 10px;position:relative" id="ed-add-wrap"><input type="text" id="ed-add" placeholder="输入标签回车添加（有自动补全），可逗号分隔多个" style="width:100%"></div>
+              <div style="padding:0 10px 10px" id="ed-text-wrap" hidden><textarea id="ed-text" rows="10" style="width:100%"></textarea></div>
+              <div style="padding:0 10px 12px" class="row"><button class="btn btn-sm btn-danger" id="ed-remove">移出训练集</button><span class="hint" style="margin:0">移到训练集里的「_已移除」文件夹，可以找回</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 06 训练中测试 ===== -->
+      <section class="page" id="page-sample">
+        <div class="card">
+          <div class="card-title">测试出图设置<span class="card-title-hint">保存在当前配置里，下一个加入队列的任务生效；训练到指定步数会暂停训练出一组图。提示词训练中也能改，改完点「用到正在训练的任务」</span></div>
+          <div class="row" style="gap:18px;flex-wrap:wrap">
+            <label class="chk-row"><input type="checkbox" id="s-enabled"><i></i><span>训练中出测试图</span></label>
+            <div class="seg" id="s-mode"><button data-v="follow">跟随保存间隔</button><button data-v="custom">自定义间隔</button></div>
+            <span id="s-follow-text" class="s-follow"></span>
+            <span id="s-custom" class="row" style="gap:8px">
+              <span>每</span><input type="number" id="s-epochs" style="width:70px" min="0"><span>轮</span>
+              <span class="muted">或每</span><input type="number" id="s-steps" style="width:90px" min="0"><span>步出一组</span>
+            </span>
+            <label class="chk-row"><input type="checkbox" id="s-first"><i></i><span>训练开始前先出一组（对比用）</span></label>
+            <label class="chk-row" id="s-turbo-wrap"><input type="checkbox" id="s-turbo"><i></i><span>用 Turbo 模型出图（8 步，快）</span></label>
+            <label class="chk-row" title="同一个保存位置重新训练时，上次的测试图会和这次的混在一张表里"><input type="checkbox" id="s-clear-old"><i></i><span>开训前清空上次的测试图</span></label>
+          </div>
+          <div class="hint" id="s-hint"></div>
+          <div style="margin-top:12px" class="prompt-head"><span>#</span><span>提示词 / 反向提示词</span><span>宽</span><span>高</span><span>步数</span><span>CFG</span><span>种子</span><span></span></div>
+          <div id="s-prompts"></div>
+          <div class="action-row" style="margin-top:10px">
+            <button class="btn btn-sm" id="s-add">＋ 添加一条</button>
+            <button class="btn btn-sm" id="s-trigger">在提示词前加上触发词</button>
+            <button class="btn btn-sm" id="s-defaults">恢复默认提示词</button>
+            <button class="btn btn-sm" id="s-apply" hidden>用到正在训练的任务</button>
+            <span class="hint" id="s-apply-hint" style="margin:0" hidden></span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">测试图<span class="card-title-hint">行 = 提示词，列 = 训练步数；训练中每 5 秒自动刷新</span>
+            <span class="right"><select id="s-task" style="width:260px"></select><button class="btn btn-sm" id="s-refresh">刷新</button><button class="btn btn-sm" id="s-open">打开文件夹</button><button class="btn btn-sm" id="s-clear">清空测试图</button></span></div>
+          <div class="sgrid" id="s-grid"></div>
+        </div>
+      </section>
+
+      <!-- ===== 07 训练器设置 ===== -->
+      <section class="page" id="page-settings">
+        <div class="grid2">
+          <div class="card">
+            <div class="card-title">一键更新</div>
+            <table class="kv" id="st-versions"></table>
+            <div class="action-row" style="margin:12px 0 0"><button class="btn btn-primary" id="st-update">一键更新训练器 + 引擎</button><button class="btn" id="st-update-self">只更新训练器</button></div>
+            <div class="form-grid" style="margin-top:12px"><label>训练器更新地址</label><input type="text" id="st-repo" placeholder="GitHub 仓库地址；目录本身是 git 仓库时可留空"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">训练环境<span class="card-title-hint">PyTorch + sd-scripts + musubi-tuner + 反推组件，装在训练器目录的 env 文件夹</span></div>
+            <table class="kv" id="st-env"></table>
+            <div class="action-row" style="margin:12px 0 0">
+              <button class="btn btn-primary" id="st-install">安装训练环境</button>
+              <button class="btn" id="st-repair">修复环境</button>
+              <button class="btn" id="st-torch">重装 PyTorch</button>
+            </div>
+            <div class="form-grid" style="margin-top:12px"><label>PyTorch CUDA 版本</label>
+              <select id="st-torchv"><option value="cu126">CUDA 12.6（老驱动）</option><option value="cu128">CUDA 12.8（推荐，支持 50 系）</option><option value="cu130">CUDA 13.0（新驱动）</option></select></div>
+          </div>
+          <div class="card">
+            <div class="card-title">网络</div>
+            <div class="seg" id="st-net"><button data-v="auto">自动检测</button><button data-v="cn">国内网络</button><button data-v="global">国外网络</button></div>
+            <div class="hint" id="st-net-hint"></div>
+            <div class="row" style="margin-top:8px;gap:8px;align-items:flex-start"><button class="btn" id="st-nettest">测速所有下载线路</button><div class="hint" id="st-nettest-out" style="margin:0;white-space:pre-line"></div></div>
+            <div class="form-grid" style="margin-top:12px">
+              <label>代理地址</label><input type="text" id="st-proxy" placeholder="挂 VPN 但没开「系统代理」时填，例如 http://127.0.0.1:7890；开了系统代理会自动用，不用填">
+              <label>GitHub 加速代理</label><input type="text" id="st-ghproxy" placeholder="留空用内置的几个（ghfast.top / gh-proxy.com / ghproxy.net）">
+              <label>HuggingFace Token</label><input type="password" id="st-hftoken" placeholder="下载需要登录的模型时才需要">
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">界面与端口</div>
+            <div class="form-grid">
+              <label>端口</label><div class="row"><input type="number" id="st-port" style="width:120px"><span class="hint" style="margin:0">改完重启训练器生效</span></div>
+              <label>界面风格</label><div class="seg" id="st-theme"><button data-v="light">浅色</button><button data-v="dark">深色</button></div>
+              <label>启动时</label><label class="chk-row" style="justify-self:start"><input type="checkbox" id="st-openbrowser"><i></i><span>自动打开浏览器</span></label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">训练</div>
+            <div class="form-grid">
+              <label>使用的显卡</label><div><div class="switches solo" id="st-gpu"></div><div class="hint" id="st-gpu-hint"></div></div>
+              <label>默认保存位置</label><div class="row"><input type="text" id="st-outdir"><button class="btn" id="st-outdir-browse">浏览…</button></div>
+              <label>训练前检查</label><label class="chk-row" style="justify-self:start"><input type="checkbox" id="st-check"><i></i><span>开训前检查训练集、模型文件、显存（推荐）</span></label>
+              <label>训练集文件夹</label><label class="chk-row" style="justify-self:start"><input type="checkbox" id="st-syncds"><i></i><span>同步：图片爬取的保存位置、标签反推、标签编辑、高级参数的训练集，改任意一个其它都跟着变</span></label>
+              <label>队列完成后</label><label class="chk-row" style="justify-self:start"><input type="checkbox" id="st-shutdown"><i></i><span>自动关机（2 分钟后，可在命令行 shutdown /a 取消）</span></label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">后台作业<span class="card-title-hint">下载、安装、反推</span></div>
+            <div id="st-jobs"></div>
+          </div>
+        </div>
+        <div class="card" id="st-job-log-card" hidden>
+          <div class="card-title" id="st-job-title">作业日志<span class="right"><button class="btn btn-sm btn-danger" id="st-job-stop">停止</button></span></div>
+          <div class="prog" id="st-job-prog" style="margin-bottom:8px"><i></i></div>
+          <div class="log-box" id="st-job-log" style="height:260px"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+<div id="jobdock"></div>
+<div id="toasts"></div>
+
+<script src="js/core.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/train.js"></script>
+<script src="js/model.js"></script>
+<script src="js/params.js"></script>
+<script src="js/modelpicker.js"></script>
+<script src="js/taginput.js"></script>
+<script src="js/trigger.js"></script>
+<script src="js/send.js"></script>
+<script src="js/crawl.js"></script>
+<script src="js/tag.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/settings.js"></script>
+<script>App.boot();</script>
+</body>
+</html>

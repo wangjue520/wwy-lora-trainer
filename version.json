@@ -1,0 +1,8 @@
+{
+ "version": "0.1.0",
+ "updated_at": "2026-10-19",
+ "engines": {
+  "sd-scripts": "04ca541746b7667b27eab230db067579f682895e",
+  "musubi-tuner": "f8a1b03794a49239a3539015075f5123d6c07d66"
+ }
+}
