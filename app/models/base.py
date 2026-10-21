@@ -65,6 +65,9 @@ class ModelSpec:
     slots = []
     sample_defaults = {}
     resume = False          # 支持冻结 / 续训（训练引擎能从保存的训练状态或某一轮的 LoRA 接着练）
+    family = ""             # 同一个底模的不同训练引擎填同一个值：界面上合成一张卡片，卡片下面切换引擎
+    engine_label = ""       # 切换引擎时显示的名字
+    engine_note = ""
     # 主模型下拉框的分组：[variant 值, 组名, 选中这一组的模型时显示的提示]
     variant_groups = [
         ["official", "官方底模（推荐，练出来的 LoRA 在各个微调版上都通用）", ""],
@@ -173,7 +176,8 @@ class ModelSpec:
         return {"id": self.id, "label": self.label, "subtitle": self.subtitle, "engine": self.engine,
                 "caption_style": self.caption_style, "slots": [s.to_dict() for s in self.slots],
                 "params": params, "presets": self.vram_presets(), "sample_defaults": self.sample_defaults,
-                "adv_order": ADV_ORDER, "resume": self.resume, "variant_groups": self.variant_groups}
+                "adv_order": ADV_ORDER, "resume": self.resume, "variant_groups": self.variant_groups,
+                "family": self.family or self.id, "engine_label": self.engine_label or self.engine, "engine_note": self.engine_note}
 
 
 ADV_ORDER = ["训练细节", "标签处理", "数据增强", "分桶", "精度与保存", "时间步 / 噪声", "显存 / 速度", "LoRA 结构", "分层学习率",

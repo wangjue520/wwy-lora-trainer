@@ -25,13 +25,23 @@
 
     renderSpecs() {
       const el = $('#spec-cards'); el.innerHTML = '';
-      App.state.specs.forEach(s => {
-        const c = h(`<div class="spec-card ${App.draft.model_type === s.id ? 'on' : ''}"><div class="sc-eng">${esc(s.engine.toUpperCase())}</div>
+      const fams = [];   // 同一个底模的不同训练引擎（spec.family 相同）合成一张卡片
+      App.state.specs.forEach(s => { const f = fams.find(x => x[0].family === s.family); f ? f.push(s) : fams.push([s]); });
+      fams.forEach(list => {
+        const last = (App.draft.last_engine || {})[list[0].family];
+        const s = list.find(x => x.id === App.draft.model_type) || list.find(x => x.id === last) || list[0], on = App.draft.model_type === s.id;
+        const c = h(`<div class="spec-card ${on ? 'on' : ''}"><div class="sc-eng">${esc(s.engine.toUpperCase())}</div>
           <div class="sc-name">${esc(s.label)}</div><div class="sc-sub">${esc(s.subtitle)}</div><i class="sc-mark"></i></div>`);
         c.onclick = () => { if (App.draft.model_type !== s.id) App.setModelType(s.id); };
         el.append(c);
       });
       el.append(h('<div class="spec-card more">更多底模 · 敬请期待</div>'));
+      const cur = App.spec(), eng = $('#spec-engine'), list = cur ? App.state.specs.filter(x => x.family === cur.family) : [];
+      eng.hidden = list.length < 2;
+      if (list.length < 2) return;
+      eng.innerHTML = `<span>训练引擎</span><div class="seg">${list.map(x => `<button data-v="${esc(x.id)}" class="${x.id === cur.id ? 'on' : ''}">${esc(x.engine_label)}</button>`).join('')}</div>
+        <span class="muted">${esc(cur.engine_note || '')}</span>`;
+      App.$$('button', eng).forEach(b => b.onclick = () => { if (b.dataset.v !== cur.id) App.setModelType(b.dataset.v, true); });
     },
 
     async pollScan() {

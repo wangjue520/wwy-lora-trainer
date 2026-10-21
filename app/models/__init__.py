@@ -5,6 +5,7 @@ from .anima import Anima
 from .krea2 import Krea2
 from .sdxl import SDXL
 from .moss import Moss
+from .moss_native import MossNative
 
 _REGISTRY = {}
 
@@ -14,7 +15,7 @@ def register(spec):
     return spec
 
 
-for _cls in (Anima, Krea2, SDXL, Moss):   # _BUILTIN
+for _cls in (Anima, Krea2, SDXL, Moss, MossNative):   # _BUILTIN
     register(_cls())
 
 

@@ -119,14 +119,21 @@
       }
       this.saveDraft();
     },
-    setModelType(id) {
-      const old = this.draft.model_type ? this.params() : {};
+    // sameModel：同一个底模换训练引擎，自己改过的参数（两个引擎都有的）和选好的模型文件一起带过去
+    setModelType(id, sameModel) {
+      const oldSpec = this.spec(), old = this.draft.model_type ? this.params() : {}, oldModels = this.draft.model_type ? this.cur().models : {};
       this.draft.model_type = id;
+      this.draft.last_engine = Object.assign({}, this.draft.last_engine, { [this.spec().family]: id });   // 点回这张卡片时用上次的引擎
       const c = this.cur();
       // 换底模时沿用训练集和保存名称
       // 保存名称是默认的（mylora_旧模型_v1）就换成新底模的默认名，自己改过的才沿用
       if (/^mylora_.*_v1$|^my_lora$/.test(old.output_name || '')) delete old.output_name;
       ['dataset_dir', 'output_name'].forEach(k => { if (old[k] && c.params[k] === undefined) c.params[k] = old[k]; });
+      if (sameModel && oldSpec) {
+        const od = this.defaults(oldSpec), keys = new Set(this.spec().params.map(f => f.key));
+        Object.keys(old).forEach(k => { if (keys.has(k) && old[k] !== od[k]) c.params[k] = old[k]; });
+        this.spec().slots.forEach(s => { if (oldModels[s.key] && !c.models[s.key]) c.models[s.key] = oldModels[s.key]; });
+      }
       this.saveDraft(true);
       this.emit('model_type');
     },

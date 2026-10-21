@@ -26,8 +26,11 @@ _ANIMA_ONLY = ("qwen_image_vae_2d", "vae_chunk_size", "vae_disable_cache", "self
 class Moss(Anima):
     id = "moss"
     label = "MOSS-Image"
-    subtitle = "5B DiT · Qwen3.5-9B 文本编码器 · 自然语言 · sd-scripts"
+    subtitle = "5B DiT · Qwen3.5-9B 文本编码器 · 自然语言"
     engine = "sd-scripts"
+    family = "moss"
+    engine_label = "sd-scripts"
+    engine_note = "支持 int8 量化、冻结 / 续训、训练中换主模型和加速出图"
     caption_style = "natural"
     resume = True
     SCRIPT = "moss_image_train_network.py"

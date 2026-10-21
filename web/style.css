@@ -321,6 +321,9 @@ select { padding-right: 6px; cursor: pointer; }
 .spec-card .sc-sub { font-size: 12px; opacity: .75; margin-top: 4px; }
 .spec-card .sc-eng { position: absolute; right: 14px; top: 14px; font: 10px var(--mono); letter-spacing: .14em; opacity: .7; }
 .spec-card.on .sc-mark { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; background: var(--yel); clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.spec-engine { margin-top: 12px; gap: 8px 12px; flex-wrap: wrap; font-size: 13px; }
+.spec-engine > span:first-child { white-space: nowrap; font-weight: 600; }
+.spec-engine > .muted { flex: 1 1 220px; font-size: 12px; }
 .spec-card.more { display: flex; align-items: center; justify-content: center; color: var(--text-faint); border-style: dashed; cursor: default; font-size: 12px; text-align: center; }
 .slot { border: 1px solid var(--line); padding: 12px 14px; margin-bottom: 10px; background: var(--panel); }
 .slot-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
