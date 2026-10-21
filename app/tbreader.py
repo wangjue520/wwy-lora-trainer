@@ -138,7 +138,9 @@ def read_scalars(log_dir, runs=None):
                 off = o
         try:
             for tag, pts in _read_file(p).items():
-                pts = [[s + off, v] for s, v in pts]
+                # 按轮记录的曲线（loss/epoch_average 等）横轴本来就是真实轮数，续训后也接着记，不加步数偏移
+                d = 0 if "epoch" in tag.lower() else off
+                pts = [[s + d, v] for s, v in pts]
                 cur = merged.setdefault(tag, [])
                 if runs and pts and cur:
                     first = min(x[0] for x in pts)

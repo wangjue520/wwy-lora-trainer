@@ -607,3 +607,136 @@ if os.environ.get("LORA_TRAINER"):
             return spec
 
     _sys9.meta_path.insert(0, _SamplePromptFinder())
+
+
+# ---------------- MOSS 训练中测试：换主模型出图 / 8 步加速出图 ----------------
+# 训练器传来 LORA_SAMPLE_DIT（出图用的主模型，比如用 Base 练、用 SFT 出图）和 LORA_SAMPLE_LORA（8 步加速 LoRA）。
+# 换主模型：sd-scripts 的 MOSS 模型参数名和官方权重文件一样，出图前把训练主模型的权重原地换成这个文件的（不占额外显存），
+#   出完图再从训练主模型的文件读回来（不在内存里留备份，最多多占约 10 GB 内存）。训练的 LoRA 不受影响。
+#   int8 训练（权重已经量化）和开了块交换时不换（参数形状 / 存放位置不一样）。
+# 加速 LoRA：出图期间在每个线性层输出上加 scale * up(down(x))（和 WebUI 插件一样不合并进权重：它的增量比 bf16 精度还小），出完摘掉。
+if os.environ.get("LORA_TRAINER") and (os.environ.get("LORA_SAMPLE_DIT") or os.environ.get("LORA_SAMPLE_LORA")):
+    import sys as _sys10
+
+    def _moss_will_sample(args, epoch, steps):   # 和 moss_image_train_utils.sample_images 开头的判断一样
+        if steps == 0:
+            return bool(args.sample_at_first)
+        if args.sample_every_n_steps is None and args.sample_every_n_epochs is None:
+            return False
+        if args.sample_every_n_epochs is not None:
+            return epoch is not None and epoch % args.sample_every_n_epochs == 0
+        return steps % args.sample_every_n_steps == 0 and epoch is None
+
+    def _moss_copy_weights(model, path):
+        import torch
+        from library import moss_image_utils as mu
+        from library.lora_utils import load_safetensors_with_lora_and_fp8
+        from library.safetensors_utils import WeightTransformHooks
+        hooks = WeightTransformHooks()
+        hooks.rename_hook = mu._strip_dit_prefix
+        hooks.split_hook = mu.split_fused_qkv
+        sd = load_safetensors_with_lora_and_fp8(model_files=path, lora_weights_list=None, lora_multipliers=None, fp8_optimization=False,
+                                                calc_device=torch.device("cpu"), move_to_device=False, dit_weight_dtype=None,
+                                                weight_transform_hooks=hooks)
+        sd.pop("rope.bands", None)
+        cur = model.state_dict()
+        n = 0
+        with torch.no_grad():
+            for k in list(sd):
+                v = sd.pop(k)
+                t = cur.get(k)
+                if t is not None and tuple(t.shape) == tuple(v.shape):
+                    t.copy_(v)
+                    n += 1
+        return n, len(cur)
+
+    def _moss_lora_hooks(model, path, weight):
+        import torch
+        import torch.nn.functional as F
+        from safetensors.torch import load_file
+        sd = load_file(path)
+        mods = dict(model.named_modules())
+        flat = {name.replace(".", "_"): name for name in mods if name}
+        groups = {}
+        for key, t in sd.items():
+            for suf, kind in ((".lora_down.weight", "down"), (".lora_A.weight", "down"), (".lora_up.weight", "up"),
+                              (".lora_B.weight", "up"), (".alpha", "alpha")):
+                if key.endswith(suf):
+                    name = key[: -len(suf)]
+                    for pre in ("diffusion_model.", "transformer.", "lora_unet_"):
+                        if name.startswith(pre):
+                            name = name[len(pre):]
+                    groups.setdefault(name if name in mods else flat.get(name, name), {})[kind] = t
+                    break
+        handles = []
+        for name, g in groups.items():
+            if name not in mods or "down" not in g or "up" not in g:
+                continue
+            down, up = g["down"], g["up"]
+            scale = weight * (float(g["alpha"]) if "alpha" in g else down.shape[0]) / down.shape[0]
+            cache = {}
+
+            def hook(mod, inputs, out, down=down, up=up, scale=scale, cache=cache):
+                x = inputs[0]
+                key = (x.device, x.dtype)
+                if key not in cache:
+                    cache[key] = (down.to(x.device, x.dtype), up.to(x.device, x.dtype))
+                d, u = cache[key]
+                return out + (F.linear(F.linear(x, d), u) * scale).to(out.dtype)
+            handles.append(mods[name].register_forward_hook(hook))
+        return handles
+
+    def _patch_moss_sample(module):
+        orig = module.sample_images
+
+        def sample_images(accelerator, args, epoch, steps, dit, *a, **kw):
+            if not _moss_will_sample(args, epoch, steps):
+                return orig(accelerator, args, epoch, steps, dit, *a, **kw)
+            from library import convrot_int8_utils
+            model = accelerator.unwrap_model(dit)
+            alt, swapped, handles = os.environ.get("LORA_SAMPLE_DIT"), False, []
+            try:
+                if alt:
+                    if convrot_int8_utils.is_convrot_int8_model(model) or (getattr(args, "blocks_to_swap", 0) or 0) > 0:
+                        print("[lora] int8 训练或开了块交换，测试出图不换主模型", flush=True)
+                    else:
+                        n, total = _moss_copy_weights(model, alt)
+                        swapped = True
+                        print(f"[lora] 测试出图换用主模型 {os.path.basename(os.path.dirname(os.path.dirname(alt))) or alt}"
+                              f"（换了 {n}/{total} 个张量）", flush=True)
+                lora = os.environ.get("LORA_SAMPLE_LORA")
+                if lora:
+                    handles = _moss_lora_hooks(model, lora, float(os.environ.get("LORA_SAMPLE_LORA_WEIGHT") or 1))
+                    print(f"[lora] 测试出图挂上加速 LoRA {os.path.basename(lora)}（{len(handles)} 层）", flush=True)
+                return orig(accelerator, args, epoch, steps, dit, *a, **kw)
+            finally:
+                for h in handles:
+                    h.remove()
+                if swapped:
+                    _moss_copy_weights(model, args.pretrained_model_name_or_path)
+                    import gc
+                    gc.collect()
+                    print("[lora] 测试出图完成，主模型权重已换回训练用的", flush=True)
+        module.sample_images = sample_images
+
+    class _MossSampleFinder:
+        def find_spec(self, name, path, target=None):
+            if name != "library.moss_image_train_utils":
+                return None
+            import importlib.util
+            _sys10.meta_path.remove(self)
+            spec = importlib.util.find_spec(name)
+            if spec is None or spec.loader is None:
+                return spec
+            _exec = spec.loader.exec_module
+
+            def exec_module(module):
+                _exec(module)
+                try:
+                    _patch_moss_sample(module)
+                except Exception as e:
+                    print(f"[lora] 测试出图换主模型 / 加速的补丁没打上：{e}", flush=True)
+            spec.loader.exec_module = exec_module
+            return spec
+
+    _sys10.meta_path.insert(0, _MossSampleFinder())

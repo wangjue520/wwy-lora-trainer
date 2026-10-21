@@ -33,6 +33,18 @@ RE_STEPS = re.compile(r"(?<!Denoising )(?<!Sampling )steps:\s*(\d+)%\|[^|]*\|\s*
 RE_SAMPLING = re.compile(r"(?:Denoising|Sampling) steps:\s*\d+%\|[^|]*\|\s*(\d+)/(\d+)")   # 训练中出测试图的进度条
 RE_LOSS = re.compile(r"avr_loss=([\d.eE+-]+|nan)")
 RE_EPOCH = re.compile(r"\bepoch (\d+)/(\d+)", re.I)
+
+
+def _hms(s):
+    """进度条里的时间「MM:SS」或「H:MM:SS」→ 秒。"""
+    try:
+        parts = [int(x) for x in s.split(":")]
+    except ValueError:
+        return None
+    sec = 0
+    for x in parts:
+        sec = sec * 60 + x
+    return sec
 ANSI = re.compile(r"\[[0-9;?]*[A-Za-z]")
 RE_CACHE = re.compile(r"(\d+)%\|[^|]*\|\s*(\d+)/(\d+)")
 PAUSE_STATE = "paused_state"   # 冻结时训练状态存在任务目录的这个子文件夹
@@ -621,7 +633,14 @@ def _run_step(t, s, log):
             lm = RE_LOSS.search(line)
             loss = lm.group(1) if lm else None
             prog = dict(t.get("progress") or {})
-            prog.update(step=step, total=total, elapsed=m.group(4), eta=m.group(5))
+            eta = m.group(5)
+            run_steps = int(m.group(2))
+            if r and run_steps > 0:   # 续训：引擎的剩余时间是按「这次的步数 / 全部步数」算的，偏大很多；按这次每步的耗时重算
+                el = _hms(m.group(4))
+                if el is not None:
+                    left = int(el / run_steps * max(0, total - step))
+                    eta = f"{left // 3600}:{left % 3600 // 60:02d}:{left % 60:02d}" if left >= 3600 else f"{left // 60:02d}:{left % 60:02d}"
+            prog.update(step=step, total=total, elapsed=m.group(4), eta=eta)
             if loss and loss != "nan":
                 prog["loss"] = float(loss)
                 if not loss_hist or loss_hist[-1][0] != step:

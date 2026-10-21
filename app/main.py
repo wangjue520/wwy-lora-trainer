@@ -40,11 +40,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--wait-port", action="store_true", help="界面里点「重启训练器」时用：等旧的训练器让出端口再启动")
     args = ap.parse_args()
     s = settings.load()
     host = s.get("host") or "127.0.0.1"
     port = args.port or int(s.get("port") or 28100)
     url = f"http://127.0.0.1:{port}/"
+    if args.wait_port:
+        for _ in range(60):
+            if _port_free("127.0.0.1", port):
+                break
+            time.sleep(0.5)
 
     if not _port_free("127.0.0.1", port):
         if _is_us("127.0.0.1", port):

@@ -50,6 +50,7 @@
         tip.style.top = (r.bottom + 6 + tip.offsetHeight > innerHeight ? r.top - tip.offsetHeight - 6 : r.bottom + 6) + 'px';
       });
       $('#global-status').onclick = () => this.go('train');
+      $('#restart-btn').onclick = () => this.restart();
       Object.values(this.pages).forEach(p => p.init && p.init());
       const hash = location.hash.replace('#', '');
       this.go(PAGES[hash] ? hash : (this.draft.model_type ? 'train' : 'model'));
@@ -149,9 +150,27 @@
       try {
         const [q, jobs, g] = await Promise.all([api('queue.list'), api('jobs.list'), api('gpu')]);
         this.queue = q; this.jobs = jobs; this.gpu = g;
-        this.renderGpu(g); this.renderStatus(q); this.renderJobs(jobs);
+        this.renderGpu(g); this.renderStatus(q); this.renderJobs(jobs); this.renderRestart(q, jobs);
         this.emit('tick', { q, jobs, g });
       } catch (e) { /* 后台暂时没响应，下次再试 */ }
+    },
+    // 后端代码改过（更新 / 手动改）还没重启：顶部提示 + 重启按钮；训练中 / 有后台作业时按钮不能点
+    renderRestart(q, jobs) {
+      const bar = $('#restart-bar'); bar.hidden = !q.restart || this._restarting;
+      if (bar.hidden) return;
+      const busy = q.tasks.some(t => t.status === 'running' || t.status === 'checking') ? '正在训练' : (jobs.some(j => j.status === 'running') ? '有后台作业在进行' : '');
+      const b = $('#restart-btn'); b.disabled = !!busy; b.title = busy ? busy + '，结束后再重启' : '';
+    },
+    async restart() {
+      try { await api('app.restart'); } catch (e) { this.toast(e.message, 'bad'); return; }
+      this._restarting = true; $('#restart-bar').hidden = true;
+      this.toast('正在重启训练器…', '', null, null, 30000);
+      await new Promise(r => setTimeout(r, 2500));
+      for (let i = 0; i < 60; i++) {   // 等新的训练器起来再刷新页面
+        try { const r = await fetch('/api/queue.list', { method: 'POST', body: '{}' }); if (r.ok) { location.reload(); return; } } catch (e) { /* 还没起来 */ }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      this.toast('训练器没有自动起来，请手动双击「启动LoRA训练器.bat」', 'bad', null, null, 30000);
     },
     renderGpu(g) {
       const el = $('#gpu-mon');

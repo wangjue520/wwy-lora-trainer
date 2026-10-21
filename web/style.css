@@ -95,6 +95,9 @@ code, .mono { font-family: var(--mono); }
 :root[data-theme="dark"] .page-mark { background: var(--yel); color: var(--ink); }
 #page-code { display: block; font: 10.5px var(--mono); letter-spacing: .18em; color: var(--text-faint); }
 #page-title { font: 700 22px var(--disp); letter-spacing: .02em; line-height: 1.15; }
+.restart-bar { display: flex; align-items: center; gap: 12px; padding: 8px 28px; background: var(--yel); color: var(--ink); font-size: 13px; flex: none; }
+.restart-bar[hidden] { display: none; }
+.restart-bar .btn { margin-left: auto; }
 #topbar-extra { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .topbar-clock { font: 11px var(--mono); color: var(--text-faint); text-align: right; letter-spacing: .1em; }
 .topbar-clock b { display: block; font: 600 16px var(--disp); color: var(--text); letter-spacing: .06em; }

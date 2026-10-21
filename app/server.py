@@ -6,7 +6,9 @@ import os
 import re
 import string
 import subprocess
+import sys
 import threading
+import time
 import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -225,7 +227,50 @@ def _fs_mkdir(a):
 # ---- 队列 ----
 @api("queue.list")
 def _queue_list(_):
-    return {"tasks": tasks.listing(), "state": tasks.queue_state()}
+    return {"tasks": tasks.listing(), "state": tasks.queue_state(), "restart": restart_needed()}
+
+
+START_TIME = time.time()
+_served = {"port": None}
+_restart_cache = {"at": 0.0, "value": False}
+
+
+def restart_needed():
+    """训练器后端的代码（app 下的 .py、version.json）在启动之后改过，要重启才生效。
+    前端文件刷新页面就生效；app/vendor、app/workers 只给训练 / 反推子进程用，每次都是新进程，不用重启。"""
+    now = time.time()
+    if now - _restart_cache["at"] < 5:
+        return _restart_cache["value"]
+    newest = os.path.getmtime(os.path.join(paths.ROOT, "version.json")) if os.path.isfile(os.path.join(paths.ROOT, "version.json")) else 0
+    for root, dirs, files in os.walk(paths.APP):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", "vendor", "workers")]
+        for f in files:
+            if f.endswith(".py"):
+                try:
+                    newest = max(newest, os.path.getmtime(os.path.join(root, f)))
+                except OSError:
+                    pass
+    _restart_cache.update(at=now, value=newest > START_TIME + 2)
+    return _restart_cache["value"]
+
+
+@api("app.restart")
+def _app_restart(_):
+    """重启训练器：用启动 bat 再开一个（等这个让出端口），这个随即退出。正在训练 / 有后台作业时不重启。"""
+    if any(t["status"] in ("running", "checking") for t in tasks.listing()):
+        raise ValueError("正在训练，重启会中断训练；等训练结束或先冻结再重启")
+    busy = [j for j in jobs.listing() if j.get("status") == "running"]
+    if busy:
+        raise ValueError(f"「{busy[0].get('title')}」还在进行，等它结束再重启")
+    args = ["--no-browser", "--wait-port"] + (["--port", str(_served["port"])] if _served["port"] else [])
+    bat = os.path.join(paths.ROOT, "启动LoRA训练器.bat")
+    if os.name == "nt" and os.path.isfile(bat):
+        subprocess.Popen(["cmd", "/c", "start", "WWY LoRA 训练器", bat] + args, cwd=paths.ROOT, creationflags=0x08000000)
+    else:
+        subprocess.Popen([sys.executable, "-I", os.path.join(paths.APP, "main.py")] + args, cwd=paths.ROOT,
+                         creationflags=0x00000010 if os.name == "nt" else 0)
+    threading.Timer(1.0, lambda: os._exit(0)).start()   # 先把这次请求的回复发出去
+    return True
 
 
 @api("queue.add")
@@ -756,6 +801,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(host, port):
+    _served["port"] = port
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     t = threading.Thread(target=httpd.serve_forever, daemon=True)

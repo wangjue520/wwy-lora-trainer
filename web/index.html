@@ -55,6 +55,7 @@
       <div class="page-head"><span id="page-code">01 // TRAIN</span><h1 id="page-title">启动训练</h1></div>
       <div id="topbar-extra"><div class="topbar-clock"><b id="topbar-clock">00:00:00</b>WWY · LORA TRAINER</div></div>
     </header>
+    <div class="restart-bar" id="restart-bar" hidden><span>训练器的代码更新过，重启训练器后生效</span><button class="btn btn-sm" id="restart-btn">重启训练器</button></div>
     <div id="content">
 
       <!-- ===== 01 启动训练 ===== -->
@@ -326,7 +327,7 @@
               <span class="muted">或每</span><input type="number" id="s-steps" style="width:90px" min="0"><span>步出一组</span>
             </span>
             <label class="chk-row"><input type="checkbox" id="s-first"><i></i><span>训练开始前先出一组（对比用）</span></label>
-            <label class="chk-row" id="s-turbo-wrap"><input type="checkbox" id="s-turbo"><i></i><span>用 Turbo 模型出图（8 步，快）</span></label>
+            <label class="chk-row" id="s-turbo-wrap"><input type="checkbox" id="s-turbo"><i></i><span>加速出图（8 步，快）</span></label>
             <label class="chk-row" title="同一个保存位置重新训练时，上次的测试图会和这次的混在一张表里"><input type="checkbox" id="s-clear-old"><i></i><span>开训前清空上次的测试图</span></label>
           </div>
           <div class="hint" id="s-hint"></div>
