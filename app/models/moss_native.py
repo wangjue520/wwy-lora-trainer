@@ -166,7 +166,7 @@ class MossNative(Moss):
               show_if={"network_type": "lokr"}),
 
             F("compile_blocks", "torch.compile 主干预块", "bool", False, "adv", "显存 / 速度",
-              help="首次运行要编译；需要 triton。"),
+              help="只支持 LoRA（dim = alpha = 16）或 LoKr（分解因子 8，dim = alpha = 16 或完整矩阵）；会自动开融合 SITU / RMSNorm。首次运行要编译。"),
             F("checkpoint_offload", "检查点激活卸载到 CPU", "bool", False, "adv", "显存 / 速度",
               help="配合梯度检查点用。"),
             F("fused_situ", "融合 SITU 激活", "bool", False, "adv", "显存 / 速度",
@@ -213,6 +213,22 @@ class MossNative(Moss):
         notes = []
         if len(task.get("gpus") or []) > 1:
             notes.append("专用引擎目前只支持单卡，多卡设置会被忽略。")
+        if p.get("compile_blocks"):   # moss_trainer 的编译路径只验证过这几种组合，不符合时它要到开训才报英文错
+            p.update(fused_situ=True, fused_rmsnorm=True, gradient_checkpointing=True, checkpoint_policy="full")
+            algo, dim, alpha = p.get("network_type") or "lora", int(p.get("network_dim") or 0), float(p.get("network_alpha") or 0)
+            bad = []
+            if algo not in ("lora", "locon", "lokr"):
+                bad.append("网络类型只能是 LoRA / LoCon / LoKr")
+            if algo == "lokr" and int(p.get("lokr_factor") or 0) != 8:
+                bad.append("LoKr 分解因子要是 8")
+            if algo == "lokr" and p.get("use_tucker"):
+                bad.append("LoKr 不能用 Tucker 分解")
+            if not (algo == "lokr" and p.get("full_matrix")) and (dim != 16 or alpha != 16):
+                bad.append("网络维度 dim 和 alpha 都要是 16" + ("（或勾「LoKr 用完整矩阵」）" if algo == "lokr" else ""))
+            if any(float(p.get(k) or 0) for k in ("network_dropout", "rank_dropout", "module_dropout")):
+                bad.append("dropout 都要是 0")
+            if bad:
+                raise RuntimeError("开了「torch.compile 主干预块」，但" + "；".join(bad) + "。改参数，或者关掉编译。")
         cfg_dir = self.config_dir(p)
         steps = []
         if not os.path.isfile(os.path.join(cfg_dir, "pipeline_moss_image.py")):
@@ -228,9 +244,12 @@ class MossNative(Moss):
         steps.append({"name": "缓存文本 / VAE 特征", "kind": "cache", "cwd": task_dir, "python": env_py,
                       "cmd": ["-m", "moss_trainer.cli", "cache", "--config", cfg],
                       "env": {"PYTHONPATH": paths.ROOT}})
+        env = {"PYTHONPATH": paths.ROOT}
+        if p.get("compile_blocks"):
+            env["LYCORIS_KERNEL_BACKEND"] = "torch"   # 编译路径要求
         steps.append({"name": "训练", "kind": "train", "cwd": task_dir, "python": env_py,
                       "cmd": ["-m", "moss_trainer.cli", "train", "--config", cfg],
-                      "env": {"PYTHONPATH": paths.ROOT}, "preview_name": p.get("output_name") or "mylora_moss_v1"})
+                      "env": env, "preview_name": p.get("output_name") or "mylora_moss_v1"})
         steps.append({"name": "导出 LoRA", "kind": "post", "cwd": paths.ROOT, "python": env_py,
                       "cmd": [os.path.join(paths.APP, "workers", "moss_native_export.py"),
                               "--src", out_dir, "--dest", task.get("output_dir") or paths.OUTPUT,
