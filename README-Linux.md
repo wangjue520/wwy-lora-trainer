@@ -44,6 +44,7 @@ bash scripts/xgc/setup_xgc.sh
   界面在自己的浏览器里开，不放进 OS 窗口（OS 里很卡）。
   基础镜像自带的别的应用图标 / 启动项挪到 `/root/.xgc_old/`。
 - 外网地址：`https://<实例ID>-28100.container.x-gpu.com/`（或 `-80`）。
+- 保存镜像前：`bash scripts/xgc/clean_for_image.sh` 先看会删什么（训练产物、任务、日志、缓存、训练集，模型只留 Anima 三件套和打标模型），确认后加 `--yes`。
 
 ## MOSS-Image 的两个训练引擎
 
