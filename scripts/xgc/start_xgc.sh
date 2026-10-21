@@ -3,4 +3,8 @@
 cd "$(dirname "$0")/../.."
 export LORA_TRAINER_EXTRA_PORTS="${LORA_TRAINER_EXTRA_PORTS:-80}"
 HOST=0.0.0.0 PORT="${PORT:-28100}" ./start.sh
-echo "  仙宫云外网地址：控制台的「打开webui」，或 OS 桌面的「LoRA训练器」"
+ID="${XGC_INSTANCE_ID:-$(tr '\0' '\n' < /proc/1/environ 2>/dev/null | sed -n 's/^XGC_INSTANCE_ID=//p')}"
+if [ -n "$ID" ]; then
+    echo "  在自己的浏览器里打开：https://$ID-28100.container.x-gpu.com/"
+    echo "  （控制台「打开webui」开的是 https://$ID-80.container.x-gpu.com/，同一个训练器）"
+fi

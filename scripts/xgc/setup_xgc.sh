@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 仙宫云（xiangongyun.com）镜像用：仙宫云 OS 桌面图标 + 开机自动启动训练器。可以重复执行。
 #   bash scripts/xgc/setup_xgc.sh
-# 训练器同时监听 28100 和 80：控制台「打开webui」按钮、OS 的 80 端口快捷方式固定开 80 端口。
+# 训练器同时监听 28100 和 80：控制台「打开webui」按钮固定开 80 端口。界面在自己的浏览器里开，不放进 OS 窗口（OS 里很卡）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ICONS="$ROOT/scripts/xgc/desktop"
@@ -35,8 +35,8 @@ if [ -d "$DESK" ]; then
         cp "$ICONS/$3.png" "$d/$3.png"
         printf 'name: %s\ntitle: %s\nicon: %s.png\ntype: %s\nprops:\n%s\n' "$2" "$2" "$3" "$4" "$5" > "$d/info.yaml"
     }
-    app wwy-lora "LoRA训练器" lora browser "  port: 28100"
-    app wwy-lora-start "启动训练器" start terminal '  exec: "bash main.sh"'
+    rm -rf "$DESK/wwy-lora.app"   # 界面不在 OS 里开（OS 里很卡），用自己浏览器开端口地址
+    app wwy-lora-start "启动训练器" lora terminal '  exec: "bash main.sh"'
     printf 'bash "%s/scripts/xgc/start_xgc.sh"\n' "$ROOT" > "$DESK/wwy-lora-start.app/main.sh"
     app wwy-lora-stop "停止训练器" stop terminal '  exec: "bash main.sh"'
     printf 'bash "%s/stop.sh"\n' "$ROOT" > "$DESK/wwy-lora-stop.app/main.sh"
