@@ -4,7 +4,7 @@
 用法：python moss_native_export.py --src <native_out> --dest <output_dir> --name <名字>
 专用引擎每个保存点存一个 epoch-000001/adapter.safetensors（ComfyUI 可直接加载的 LyCORIS 格式）。
 和 sd-scripts 的命名一样导出：中间的轮次 <名字>-000001.safetensors，最后一轮 <名字>.safetensors。
-预览图训练时已经由 tasks.py 复制到 <output_dir>/sample/。
+预览图训练时已经由 tasks.py 复制到 <output_dir>/sample/。导出后中间的保存点删掉，只留最后一个。
 """
 import argparse
 import os
@@ -42,6 +42,9 @@ def main():
         dst = os.path.join(a.dest, a.name + ("" if last else f"-{num:06d}") + ".safetensors")
         shutil.copy2(os.path.join(ckpt, "adapter.safetensors"), dst)
         print(f"导出 {dst}（{os.path.getsize(dst) / 1e6:.1f} MB，来自 {os.path.basename(ckpt)}）")
+    # 每个保存点还带优化器状态（dim 32 约 850 MB）：LoRA 已经导出，只留最后一个（以后接着练用）
+    for _, ckpt in found[:-1]:
+        shutil.rmtree(ckpt, ignore_errors=True)
 
     return 0
 
