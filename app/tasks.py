@@ -647,8 +647,10 @@ def _run_step(t, s, log):
                 if total:
                     t["steps_total"] = total
                 prog = dict(t.get("progress") or {})
+                el = float(d.get("elapsed_seconds") or 0)
+                left = int(el / step * (total - step)) if step and total > step else 0
                 prog.update(step=step, total=total or t.get("steps_total") or 0,
-                            elapsed=f"{d.get('elapsed_seconds') or 0:.0f}s", eta="",
+                            elapsed=f"{el:.0f}s", eta=f"{left // 3600}:{left % 3600 // 60:02d}:{left % 60:02d}" if left else "",
                             loss=float(d["loss"]), grad_norm=d.get("grad_norm"), lr=d.get("lr"))
                 if not loss_hist or loss_hist[-1][0] != step:
                     loss_hist.append([step, float(d["loss"])])

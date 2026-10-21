@@ -352,6 +352,28 @@ def _queue_task(a):
     return t
 
 
+def _native_metrics(nd):
+    """MOSS 专用引擎的 TensorBoard 标签（train/loss、train/learning_rate、train/epoch）换算成界面的几条曲线。"""
+    loss = nd.get("train/loss") or []
+    if not loss:
+        return {}
+    ep = dict(nd.get("train/epoch") or [])
+    spe = sum(1 for s, _ in loss if ep.get(s, 99) <= 1.0) or 50   # 每轮步数：平均 loss 按一轮的窗口算（和 sd-scripts 一样）
+    avg, win, tot = [], [], 0.0
+    for s, v in loss:
+        win.append(v)
+        tot += v
+        if len(win) > spe:
+            tot -= win.pop(0)
+        avg.append([s, tot / len(win)])
+    by_ep = {}
+    for s, v in loss:
+        e = max(1, -int(-ep.get(s, 1) // 1)) if s in ep else 1
+        by_ep.setdefault(e, []).append(v)
+    return {"loss/average": avg, "loss/current": loss, "lr/unet": nd.get("train/learning_rate") or [],
+            "loss/epoch_average": [[e, sum(v) / len(v)] for e, v in sorted(by_ep.items())]}
+
+
 @api("queue.metrics")
 def _queue_metrics(a):
     """训练曲线：读任务目录 logs 里的 TensorBoard 日志；没有日志（旧任务）时退回进度条里解析的平均 loss。"""
@@ -361,6 +383,8 @@ def _queue_metrics(a):
         return None
     td = os.path.join(paths.TASKS, t["id"])
     d = tbreader.read_scalars(os.path.join(td, "logs"), t.get("tb_runs"))
+    if not d:
+        d = _native_metrics(tbreader.read_scalars(os.path.join(td, "native_out", "tensorboard")))
     if not d and (t.get("progress") or {}).get("loss_hist"):
         d = {"loss/average": t["progress"]["loss_hist"]}
     # Automagic / EmoSens 的实际学习率（引擎日志里的 lr 只是调度器起始值）
