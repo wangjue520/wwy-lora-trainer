@@ -16,7 +16,7 @@ import re
 
 import paths
 import safetensors_meta
-from .base import F, Slot, write_atomic
+from .base import F, ParamError, Slot, write_atomic
 from .moss import Moss
 
 REPO = "OpenMOSS-Team/MOSS-Image-Base"   # 只下配置 / pipeline / 分词器，不下权重
@@ -228,7 +228,7 @@ class MossNative(Moss):
             if any(float(p.get(k) or 0) for k in ("network_dropout", "rank_dropout", "module_dropout")):
                 bad.append("dropout 都要是 0")
             if bad:
-                raise RuntimeError("开了「torch.compile 主干预块」，但" + "；".join(bad) + "。改参数，或者关掉编译。")
+                raise ParamError("开了「torch.compile 主干预块」，但" + "；".join(bad) + "。改参数，或者关掉编译。")
         cfg_dir = self.config_dir(p)
         steps = []
         if not os.path.isfile(os.path.join(cfg_dir, "pipeline_moss_image.py")):

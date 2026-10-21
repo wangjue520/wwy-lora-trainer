@@ -19,6 +19,7 @@ import uuid
 import diagnose
 import gpu
 import models
+from models.base import ParamError
 import paths
 import plat
 import settings
@@ -522,6 +523,10 @@ def _run_task(t):
         _set(t, status="done", finished=time.time(), message="训练完成", outputs=list_outputs(t), resume=None)
         shutil.rmtree(os.path.join(td, PAUSE_STATE), ignore_errors=True)
         log(f"===== {time.strftime('%H:%M:%S')} 训练完成 =====")
+    except ParamError as e:   # 底模规格开训前检查出的参数问题（不是程序出错）
+        log(f"===== 参数需要调整：{e} =====")
+        _set(t, status="failed", finished=time.time(), message=str(e),
+             error={"code": "params", "title": "参数需要调整", "reason": str(e), "detail": "", "fixes": []})
     except Exception as e:
         log(traceback.format_exc())
         _set(t, status="failed", finished=time.time(), message=str(e),

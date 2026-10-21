@@ -38,6 +38,10 @@ def write_atomic(path, text):
     return path
 
 
+class ParamError(ValueError):
+    """开训前检查出的参数问题（build_steps 里抛），任务失败时按「参数需要调整」显示，不当成程序出错。"""
+
+
 class Slot:
     """一个模型槽位，例如主模型 / 文本编码器 / VAE。"""
 
