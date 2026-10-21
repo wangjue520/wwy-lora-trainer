@@ -107,9 +107,9 @@ class Moss(Anima):
     # ---------------- 参数 ----------------
     def params(self):
         f = drop(super().params(), *_ANIMA_ONLY)
-        for k, v in {"learning_rate": 1e-4, "optimizer_type": "AdamW8bit", "lr_scheduler": "cosine", "lr_warmup_steps": 0,
-                     "output_name": "mylora_moss_v1", "network_dim": 32, "network_alpha": 32, "batch_size": 1,
-                     "epochs": 10, "repeats": 4, "save_every_n_epochs": 1,
+        for k, v in {"learning_rate": 2e-4, "optimizer_type": "AdamW", "lr_scheduler": "cosine_with_restarts", "lr_scheduler_num_cycles": 2,
+                     "lr_warmup_steps": 0, "output_name": "mylora_moss_v1", "network_dim": 32, "network_alpha": 32, "batch_size": 1,
+                     "epochs": 20, "repeats": 1, "save_every_n_epochs": 2,
                      "timestep_sampling": "sigma", "discrete_flow_shift": 1.0, "weighting_scheme": "logit_normal",
                      "logit_mean": -1.09, "logit_std": 0.95, "num_workers": 2}.items():
             override(f, k, default=v)
@@ -118,8 +118,8 @@ class Moss(Anima):
         # 官方示例的 alpha 1 要第 6–8 轮才到同样程度。默认用 alpha = dim、每轮保存挑最好的。
         # 同一天 WebUI 实测：dim 16 练出的画风 LoRA 在 Base + CFG 3 下明显，但配 8 步加速（CFG 1）几乎看不出来；
         # 社区 rank 32、1500 步的画风 LoRA 改动约是它的 2.5 倍，加速下照样有画风。改成 dim 32。
-        # kieed 画风实测：dim 32、学习率 1e-4、重复 4 × 第 8 轮，和「2e-4、余弦重启、20 轮」练到的强度一样，Base 练、SFT + 8 步加速出图都有画风。
-        # 社区配方也多是 rank 16–32、学习率 1e-4。默认学习率 1e-4、余弦下降（后面几轮学习率小，结果更稳）、重复 4 × 10 轮、每轮保存。
+        # 2026-10-21 仙宫云 4090 D 上 kieed 画风对比（完整提示词逐轮出图）：「重复 1 × 20 轮、2e-4、余弦 2 个周期（重启 1 次）」
+        # 比「重复 4 × 10 轮、1e-4、余弦」步数少一半、画风更明显，作者定为默认；两个引擎用同一套。每 2 轮保存。
         override(f, "timestep_sampling", options=[["sigma", "sigma（复现官方预训练分布，推荐）"], ["shift", "shift（配 flow shift 3.0 分布相近）"],
                                                    ["sigmoid", "sigmoid"], ["uniform", "uniform"], ["flux_shift", "flux_shift"]])
         override(f, "discrete_flow_shift", show_if={"timestep_sampling": ["sigma", "shift"]},

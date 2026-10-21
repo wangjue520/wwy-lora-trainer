@@ -133,8 +133,9 @@
       if (/^mylora_.*_v1$|^my_lora$/.test(old.output_name || '')) delete old.output_name;
       ['dataset_dir', 'output_name'].forEach(k => { if (old[k] && c.params[k] === undefined) c.params[k] = old[k]; });
       if (sameModel && oldSpec) {
-        const od = this.defaults(oldSpec), keys = new Set(this.spec().params.map(f => f.key));
-        Object.keys(old).forEach(k => { if (keys.has(k) && old[k] !== od[k]) c.params[k] = old[k]; });
+        const od = this.defaults(oldSpec), fields = Object.fromEntries(this.spec().params.map(f => [f.key, f]));
+        const ok = (f, v) => f.type !== 'select' || (f.options || []).some(o => String(Array.isArray(o) ? o[0] : o) === String(v));   // 下拉框只带对方也有的选项
+        Object.keys(old).forEach(k => { if (fields[k] && old[k] !== od[k] && ok(fields[k], old[k])) c.params[k] = old[k]; });
         this.spec().slots.forEach(s => { if (oldModels[s.key] && !c.models[s.key]) c.models[s.key] = oldModels[s.key]; });
       }
       this.saveDraft(true);
