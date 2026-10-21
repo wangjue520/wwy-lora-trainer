@@ -10,6 +10,7 @@
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 
@@ -40,10 +41,12 @@ class ConsoleJob:
         except (TypeError, ValueError):
             pct = 0
         self.progress = v
-        if text.startswith("下载 PyTorch"):   # 下载进度只在变化时打一行
-            if text[:20] != self._last:
+        if text.startswith("下载 PyTorch"):   # 下载进度每 0.1 GB 打一行
+            m = re.search(r"([\d.]+) GB", text)
+            key = f"{float(m.group(1)):.1f}" if m else text
+            if key != self._last:
                 print(f"  {text}", flush=True)
-                self._last = text[:20]
+                self._last = key
             return
         print(f"\n[{pct:3d}%] {text}", flush=True)
 
