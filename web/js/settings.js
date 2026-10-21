@@ -33,7 +33,10 @@
       };
       $('#st-hftoken').onchange = e => save({ hf_token: e.target.value.trim() });
       $('#st-port').onchange = e => { const v = parseInt(e.target.value, 10); if (v > 1023 && v < 65536) save({ port: v }).then(() => App.toast(`端口改为 ${v}，重启训练器后生效`, 'ok')); };
-      App.$$('#st-theme button').forEach(b => b.onclick = () => { save({ theme: b.dataset.v }); App.applyTheme(b.dataset.v); P.show(); });
+      App.$$('#st-theme button').forEach(b => b.onclick = async () => {
+        App.applyTheme(b.dataset.v); App.$$('#st-theme button').forEach(x => x.classList.toggle('on', x === b));
+        await save({ theme: b.dataset.v });
+      });
       $('#st-openbrowser').onchange = e => save({ open_browser: e.target.checked });
       $('#st-outdir').onchange = e => save({ output_dir: e.target.value.trim() });
       $('#st-outdir-browse').onclick = async () => { const p = await App.pick({ title: '默认保存位置', start: $('#st-outdir').value }); if (p) { $('#st-outdir').value = p; save({ output_dir: p }); } };
