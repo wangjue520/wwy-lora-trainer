@@ -1,0 +1,4 @@
+# Windows 脚本必须是 CRLF 换行（cmd 遇到 LF 换行的 bat 会跳错标签），GitHub 打包下载时也按这个转换
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
