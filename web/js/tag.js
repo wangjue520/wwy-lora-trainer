@@ -16,8 +16,10 @@
   ];
 
   const T = () => App.draft.tag;
+  // 底模推荐的反推方式。没手动选过时每次打开本页都跟着当前底模走（第一次打开训练器时还没选底模，不能把那时的默认值存死）
+  const specMode = () => ({ natural: 'vlm', tags: 'wd14' })[(App.spec() || {}).caption_style] || 'hybrid';
   const defaults = () => ({
-    mode: ({ natural: 'vlm', tags: 'wd14' })[(App.spec() || {}).caption_style] || 'hybrid',
+    mode: specMode(),
     wd14: { model: 'eva02-large', general_threshold: 0.35, character_threshold: 0.85, replace_underscore: true, include_rating: false, exclude: '' },
     vlm: { model: ['krea2', 'moss'].includes((App.spec() || {}).id) ? 'qwen3vl8b' : 'toriigate', quant: 'auto',
       preset: (App.spec() || {}).id === 'moss' ? 'moss' : 'detailed', prompt: App.state.tagger.prompts[(App.spec() || {}).id === 'moss' ? 'moss' : 'detailed'],
@@ -44,6 +46,7 @@
     },
     show() {
       const d = T();
+      if (!d.mode_chosen) d.mode = specMode();
       if (!d.dir) d.dir = App.params().dataset_dir || App.state.tagger.last_dir || '';
       $('#tag-dir').value = d.dir || ''; $('#tag-trigger').value = d.trigger || ''; $('#tag-ext').value = d.ext || '.txt';
       P.dirHint(); P.renderModes(); P.renderOpts(); P.renderSeg();
@@ -65,11 +68,11 @@
     renderModes() {
       const el = $('#tag-modes'), spec = App.spec(); el.innerHTML = '';
       $('#tag-mode-hint').textContent = spec ? ({ natural: `${spec.label} 用自然语言描述效果最好`,
-        tags: `${spec.label} 用 D 站标签（WD14）效果最好，Illustrious / NoobAI 就是用 D 站标签训练的` }[spec.caption_style]
+        tags: `${spec.label} 用 D 站标签（WD14）效果最好` + (spec.id === 'sdxl' ? '，Illustrious / NoobAI 就是用 D 站标签训练的' : '') }[spec.caption_style]
         || `${spec.label} 推荐「标签 + 自然语言」混合打标`) : '';
       MODES.forEach(m => {
         const c = h(`<div class="mode-card ${T().mode === m.id ? 'on' : ''}"><b>${m.name}</b><span>${m.desc}</span></div>`);
-        c.onclick = () => { T().mode = m.id; App.saveDraft(); P.renderModes(); P.renderOpts(); };
+        c.onclick = () => { T().mode = m.id; T().mode_chosen = true; App.saveDraft(); P.renderModes(); P.renderOpts(); };
         el.append(c);
       });
     },
@@ -151,6 +154,7 @@
     },
     async start() {
       const d = T();
+      if (!d.mode_chosen) d.mode = specMode();
       if (!d.dir) { App.toast('先选择训练集文件夹', 'bad'); return; }
       if (d.mode !== 'api' && !App.state.env.env) {
         const st = await api('env.status'); App.state.env = st;

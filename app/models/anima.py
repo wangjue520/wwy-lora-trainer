@@ -35,7 +35,7 @@ class Anima(ModelSpec):
     label = "Anima"
     subtitle = "二次元 2B · Qwen3 文本编码器 · sd-scripts"
     engine = "sd-scripts"
-    caption_style = "mixed"
+    caption_style = "tags"    # 实测 Anima LoRA 用 WD14 标签就够，不用自然语言
     slots = [
         Slot("dit", "主模型（DiT）", ["anima_dit"], help="优先选官方 base 模型：微调模型 / turbo 模型训练出的 LoRA 泛化较差。",
              downloads=[{"label": "Anima base v1.0（官方）", "repo": HF,
