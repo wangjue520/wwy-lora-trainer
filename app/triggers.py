@@ -8,9 +8,9 @@
   freq    出现最多：在多少比例以上的图里出现就选上
   typical 典型图片：选一张最能代表角色的图（自动挑，或者用户指定），用它身上的特征和服装
 应用时有两种标法：
-  全标：每张图的标签重排成「主触发词, 角色特征…, 服装…, 其余标签」，什么都不删
+  全标：每张图最前面放主触发词，其余标签保持原来的顺序，什么都不删
   删标：删掉选中的那组标签（角色特征 / 服装，可以只删一组），被删的特征都记到主触发词上——
-        只写主触发词就能出这些特征（人物 LoRA 常用做法）；没删的照样排到前面结果记在 data/triggers.json，送到启动器时写进 LoRA 说明。"""
+        只写主触发词就能出这些特征（人物 LoRA 常用做法）；其余标签顺序不变。结果记在 data/triggers.json，送到启动器时写进 LoRA 说明。"""
 import collections
 import json
 import os
@@ -244,7 +244,7 @@ def norm_prune(p):
 
 
 def apply(d, main, features, outfit, ext=".txt", prune=None, mode="freq", typical=None):
-    """重排每张图的标签：主触发词, 角色特征…, 服装…, 其余。prune 见 norm_prune：删掉选中的那组标签。可在标签编辑里撤销。"""
+    """整理每张图的标签：主触发词放最前面，其余标签保持原来的顺序（不重排）。prune 见 norm_prune：删掉选中的那组标签。可在标签编辑里撤销。"""
     prune = norm_prune(prune)
     main = (main or "").strip()
     if not main:
@@ -261,10 +261,8 @@ def apply(d, main, features, outfit, ext=".txt", prune=None, mode="freq", typica
         if cap is None:
             continue
         tags = cu.split_tags(cap)
-        rest = [t for t in tags if t not in (main, old_main) and t not in fs and t not in os_]
-        has = set(tags)
-        new = ([main] + ([] if prune["features"] else [t for t in feats if t in has])
-               + ([] if prune["outfit"] else [t for t in outs if t in has]) + rest)
+        drop = (fs if prune["features"] else set()) | (os_ if prune["outfit"] else set())
+        new = [main] + [t for t in tags if t not in (main, old_main) and t not in drop]   # 不改其余标签的顺序
         text = ", ".join(new)
         if text != cap:
             cu.write_caption(f, text, ext)

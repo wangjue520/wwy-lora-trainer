@@ -232,7 +232,7 @@
             <div class="card-title">写入标签文件</div>
             <div class="form-grid">
               <label>触发词</label><input type="text" id="tag-trigger" placeholder="例如 anon_style，多个用逗号分隔；会放在每个标签文件最前面">
-              <label>自动整理触发词</label><div class="row" style="gap:10px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="tag-autotrig"><i></i><span>反推完自动判断主触发词、角色特征、服装并排到标签最前面</span></label>
+              <label>自动整理触发词</label><div class="row" style="gap:10px;flex-wrap:wrap"><label class="sw"><input type="checkbox" id="tag-autotrig"><i></i><span>反推完自动判断主触发词、角色特征、服装（主触发词放最前面，其余顺序不变）</span></label>
                 <div class="seg" id="tag-trigmode"><button data-v="freq">出现最多</button><button data-v="typical">典型图片</button></div></div>
               <label>已有标签</label>
               <div class="seg" id="tag-existing"><button data-v="overwrite" class="on">覆盖</button><button data-v="append">追加</button><button data-v="skip">跳过已有的</button></div>

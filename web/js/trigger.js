@@ -67,14 +67,14 @@
       <div class="trig-row"><label>角色特征</label><div class="trig-chips" data-g="features"></div></div>
       <div class="trig-row"><label>服装</label><div class="trig-chips" data-g="outfit"></div></div>
       <div class="trig-row"><label>标法</label><div>
-        <div class="seg" data-tm><button data-v="all">全标（都保留，只排到前面）</button><button data-v="prune">删标（删掉的记到主触发词上）</button></div>
+        <div class="seg" data-tm><button data-v="all">全标（都保留）</button><button data-v="prune">删标（删掉的记到主触发词上）</button></div>
         <div class="row" data-prune-row style="gap:8px;margin-top:8px;flex-wrap:wrap">
           <label class="sw"><input type="checkbox" data-pf><i></i><span>删除人物特征（发色、瞳色、兽耳……只写主触发词就能出）</span></label>
           <label class="sw"><input type="checkbox" data-po><i></i><span>删除服装（只写主触发词就穿原装；换衣服会难一些）</span></label>
         </div>
         <div class="hint" data-tm-hint style="margin:6px 0 0"></div></div></div>
       <div class="trig-row"><label>用 LoRA 时写</label><div class="code-box" data-prompt style="margin:0;white-space:normal"></div></div>
-      <div class="hint">点标签切换选中 / 不选；百分比是在多少比例的图里出现。应用后每张图的标签排成「主触发词, 角色特征…, 服装…, 其余」（删标时删掉的那组不出现），可以在标签编辑里撤销。</div>
+      <div class="hint">点标签切换选中 / 不选；百分比是在多少比例的图里出现。应用后每张图最前面是主触发词，其余标签保持原来的顺序（删标时删掉的那组不出现），可以在标签编辑里撤销。</div>
     </div>`);
     const $b = s => body.querySelector(s);
     const pr = () => st.prune || NOPRUNE;
@@ -90,7 +90,7 @@
       App.$$('[data-tm] button', body).forEach(b => b.classList.toggle('on', b.dataset.v === (on ? 'prune' : 'all')));
       $b('[data-prune-row]').hidden = !on;
       $b('[data-pf]').checked = pr().features; $b('[data-po]').checked = pr().outfit;
-      $b('[data-tm-hint]').textContent = !on ? '所有标签都留着，只是把主触发词、特征、服装排到最前面。用 LoRA 时要把特征词一起写上。'
+      $b('[data-tm-hint]').textContent = !on ? '所有标签都留着，顺序不变，只把主触发词放在最前面。用 LoRA 时要把特征词、服装一起写上。'
         : pr().features && pr().outfit ? '特征和服装都删掉：只写主触发词就是原装的完整造型；换衣服时要写清楚新衣服。'
         : pr().features ? '只删特征（人物 LoRA 最常用）：只写主触发词就有发色、兽耳等；衣服照常靠服装标签控制，换装容易。'
         : pr().outfit ? '只删服装：只写主触发词就穿原装，特征还要写出来。' : '两项都没勾，等于全标。';
