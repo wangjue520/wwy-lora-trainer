@@ -25,7 +25,8 @@
       $$('#ed-filter button').forEach(b => b.onclick = () => { S.filter = b.dataset.v; $$('#ed-filter button').forEach(x => x.classList.toggle('on', x === b)); P.renderThumbs(); });
       $('#ed-trigger').onclick = () => {
         const one = S.sel.size === 1 ? S.items[[...S.sel][0]] : null;
-        App.triggerDialog(S.dir, { typical: one ? one.path : null });
+        const cur = S.items[S.cur];   // 右边正在看的那张：弹窗里可以一键换成它当典型图片
+        App.triggerDialog(S.dir, { typical: one ? one.path : null, cur: cur ? cur.path : null });
       };
       $('#ed-undo').onclick = async () => { const r = await api('editor.undo', { dir: S.dir, ext: ext() }); App.toast(r.message, r.ok ? 'ok' : 'bad'); if (r.ok) P.open(S.dir, true); };
       $('#ed-selall').onclick = () => { P.visible().forEach(i => S.sel.add(i)); P.selChanged(); };

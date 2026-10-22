@@ -63,7 +63,8 @@
       <div class="trig-row"><label>选法</label><div class="seg" data-mode><button data-v="freq">出现最多（按比例自动选）</button><button data-v="typical">一张典型图片</button></div></div>
       <div class="hint" data-kind style="margin:0"></div>
       <div class="trig-row"><label>主触发词</label><div><input type="text" data-main style="width:100%" placeholder="角色名，例如 hatsune miku"><div class="trig-cands" data-cands></div></div></div>
-      <div class="trig-row" data-typ-row><label>典型图片</label><div class="row" style="align-items:flex-start;gap:10px"><img data-typ class="trig-typ"><div class="hint" style="margin:0">自动挑的是特征和服装最有代表性的一张。<br>想换一张：在标签编辑里选中那张图，再点上面的「触发词」按钮。</div></div></div>
+      <div class="trig-row" data-typ-row><label>典型图片</label><div class="row" style="align-items:flex-start;gap:10px"><img data-typ class="trig-typ"><div><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-typ-cur>换成标签编辑右边正在看的这张</button><button class="btn btn-sm" data-typ-auto>自动挑一张</button></div>
+        <div class="hint" style="margin:6px 0 0">自动挑的是特征和服装最有代表性的一张。想换：先在标签编辑里点开那张图（右边会显示它），再点上面的按钮；也可以按住 Ctrl 选中一张图后再点「触发词」。</div></div></div></div>
       <div class="trig-row"><label>角色特征</label><div class="trig-chips" data-g="features"></div></div>
       <div class="trig-row"><label>服装</label><div class="trig-chips" data-g="outfit"></div></div>
       <div class="trig-row"><label>标法</label><div>
@@ -131,6 +132,10 @@
       st.mode = b.dataset.v; App.draft.tag = App.draft.tag || {}; App.draft.tag.trigger_mode = st.mode; App.saveDraft(); load();
     });
     $b('[data-main]').oninput = e => { st.main = e.target.value.trim(); prompt(); };
+    const typCur = $b('[data-typ-cur]');
+    typCur.hidden = !opt.cur;
+    typCur.onclick = () => { st.mode = 'typical'; st.typical = opt.cur; load(); };
+    $b('[data-typ-auto]').onclick = () => { st.mode = 'typical'; st.typical = null; load(); };
     App.$$('[data-tm] button', body).forEach(b => b.onclick = () => {
       st.prune = b.dataset.v === 'prune' ? (st.prune || { features: true, outfit: false }) : null; renderTm();
     });
