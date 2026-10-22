@@ -438,11 +438,12 @@ def _run_task(t):
             issues = diagnose.preflight(t)
             ignored = set(t.get("ignored_issues") or [])
             issues = [i for i in issues if i["code"] not in ignored]
-            blocking = [i for i in issues if i["level"] == "error" or i["fixes"]]
+            # 只有致命问题（训练集 / 模型 / 环境 / 硬盘等，练不起来的）才拦下；提醒类（显存被占、标法对不上…）写进日志照常开训
+            blocking = [i for i in issues if i["level"] == "error"]
+            for i in issues:
+                log(f"[检查] {i['title']}：{i['reason']}" + ("" if i in blocking else "（只是提醒，不影响开训）"))
             if blocking:
-                for i in issues:
-                    log(f"[检查] {i['title']}：{i['reason']}")
-                _set(t, status="blocked", issues=issues, message=blocking[0]["title"] + "，需要你确认处理方式")
+                _set(t, status="blocked", issues=blocking, message=blocking[0]["title"] + "，需要你确认处理方式")
                 return
         os.makedirs(t["output_dir"], exist_ok=True)
         gpus = t.get("gpus") or settings.gpu_list()
