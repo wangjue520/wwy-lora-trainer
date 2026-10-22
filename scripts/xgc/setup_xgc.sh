@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 仙宫云（xiangongyun.com）镜像用：仙宫云 OS 桌面图标 + 开机自动启动训练器。可以重复执行。
 #   bash scripts/xgc/setup_xgc.sh
-# 训练器同时监听 28100 和 80：控制台「打开webui」按钮固定开 80 端口。界面在自己的浏览器里开，不放进 OS 窗口（OS 里很卡）。
+# 训练器同时监听 28100、7860 和 80：控制台「打开webui」按钮开 7860 端口。界面在自己的浏览器里开，不放进 OS 窗口（OS 里很卡）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ICONS="$ROOT/scripts/xgc/desktop"

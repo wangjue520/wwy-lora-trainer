@@ -23,7 +23,7 @@
 `install.sh` / `start.sh` 优先用 `python/bin/python`（项目自带的 Python），否则用 `python3`；
 系统 Python 缺 `venv / ensurepip` 时会自动换 miniconda 等带 venv 的解释器。
 
-训练器默认监听 `0.0.0.0:28100`（`PORT=28200 ./start.sh` 换端口，`LORA_TRAINER_EXTRA_PORTS=80` 再多监听一个端口）。
+训练器默认监听 `0.0.0.0:28100`（`PORT=28200 ./start.sh` 换端口，`LORA_TRAINER_EXTRA_PORTS="7860 80"` 再多监听几个端口）。
 从自己电脑访问可以用 SSH 隧道：
 
 ```bash
@@ -38,12 +38,12 @@ ssh -N -L 28100:127.0.0.1:28100 -p <SSH端口> root@<SSH地址>
 bash scripts/xgc/setup_xgc.sh
 ```
 
-- 开机自动启动训练器（`/scripts/start.d/wwy_lora_trainer.sh`），同时监听 28100 和 80；
-  控制台的「打开webui」按钮开的就是 80 端口。
+- 开机自动启动训练器（`/scripts/start.d/wwy_lora_trainer.sh`），同时监听 28100、7860 和 80；
+  控制台的「打开webui」按钮开的就是 7860 端口。
 - 仙宫云 OS 桌面：启动训练器（会打印外网地址）、停止训练器、训练器日志、训练集、训练输出、模型文件。
   界面在自己的浏览器里开，不放进 OS 窗口（OS 里很卡）。
   基础镜像自带的别的应用图标 / 启动项挪到 `/root/.xgc_old/`。
-- 外网地址：`https://<实例ID>-28100.container.x-gpu.com/`（或 `-80`）。
+- 外网地址：`https://<实例ID>-28100.container.x-gpu.com/`（或 `-7860`）。
 - 保存镜像前：`bash scripts/xgc/clean_for_image.sh` 先看会删什么（训练产物、任务、日志、缓存、训练集，模型只留 Anima 三件套和打标模型），确认后加 `--yes`。
 
 ## MOSS-Image 的两个训练引擎
