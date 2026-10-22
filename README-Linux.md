@@ -70,6 +70,7 @@ bash scripts/xgc/setup_xgc.sh
 | 取进程命令行 | PowerShell | `/proc/<pid>/cmdline` |
 | 文件选择框 / 找 WebUI | 从盘符开始 | 从 `~`、`/root`、`/workspace`、`/data`、`/mnt` 开始 |
 | 自动开浏览器 | 是 | 否 |
+| MOSS 专用引擎 | 不显示（原项目只支持 Linux），只有 sd-scripts | 两个引擎都能选 |
 
 ## 常见问题
 
