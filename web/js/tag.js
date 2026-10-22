@@ -54,7 +54,7 @@
     renderSeg() {
       App.$$('#tag-existing button').forEach(b => b.classList.toggle('on', b.dataset.v === T().existing));
       App.$$('#tag-trigmode button').forEach(b => b.classList.toggle('on', b.dataset.v === (T().trigger_mode || 'freq')));
-      $('#tag-autotrig').checked = T().auto_trigger !== false;
+      $('#tag-autotrig').checked = T().auto_trigger === true;
     },
     async dirHint() {
       const d = T().dir; const el = $('#tag-dir-hint');
@@ -180,7 +180,7 @@
             $('#tag-prog-text').textContent = `完成：写入 ${j.result.count} 个标签文件${j.result.failed ? `，${j.result.failed} 张失败` : ''}`;
             App.toast('反推完成', 'ok', '去编辑标签', () => P.goEdit(), 10000);
             App.draft.editor_dir = T().dir; App.saveDraft();
-            if (T().auto_trigger !== false) App.autoTrigger(T().dir);
+            if (T().auto_trigger === true) App.autoTrigger(T().dir);
           } else if (j.status === 'failed') {
             App.modal({ title: '反推失败', bad: true, body: `<div class="issue"><b>${esc(j.error)}</b></div><div class="code-box" style="max-height:240px">${esc((j.log || []).slice(-25).join('\n'))}</div>`, buttons: [{ label: '关闭' }] });
           }

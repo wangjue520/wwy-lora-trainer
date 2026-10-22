@@ -4,13 +4,14 @@
 (function () {
   const { esc, h, api } = App;
 
-  // 主触发词的备选：反推页填的触发词、爬图时搜的角色标签（标签里没有角色名时用）
-  const hints = () => {
+  const sameDir = (a, b) => (a || '').replace(/[\\/]+$/, '').toLowerCase() === (b || '').replace(/[\\/]+$/, '').toLowerCase();
+  // 主触发词的备选：反推页填的触发词、爬图时搜的角色标签（标签里没有角色名时用；爬图标签只在爬到的就是这个训练集时才算）
+  const hints = dir => {
     const out = [];
     const tr = (App.draft.tag || {}).trigger;
     if (tr) out.push(...tr.split(/[,，]/));
     const c = App.draft.crawl || {};
-    out.push(...String(c.tags || '').split(/\s+/).filter(t => t && !/^[-~]/.test(t) && !t.includes(':')));
+    if (!dir || sameDir(c.out_dir, dir)) out.push(...String(c.tags || '').split(/\s+/).filter(t => t && !/^[-~]/.test(t) && !t.includes(':')));
     return out;
   };
   const ext = () => ((App.draft.tag || {}).ext) || '.txt';
@@ -21,7 +22,7 @@
   // 触发词定下来后，用这个训练集的各底模配置里的测试提示词开头都换成「用 LoRA 时写」的那一串
   // （全标要写上特征 / 服装，删标只写触发词；测试提示词和标法对不上，测试图就没法看）
   App.syncSamplePrompts = async function (dir) {
-    const same = d => (d || '').replace(/[\\/]+$/, '').toLowerCase() === (dir || '').replace(/[\\/]+$/, '').toLowerCase();
+    const same = d => sameDir(d, dir);
     let n = 0;
     for (const c of Object.values(App.draft.by_model || {})) {
       if (!c.sample || !(c.sample.prompts || []).length || !same((c.params || {}).dataset_dir || App.params().dataset_dir)) continue;
@@ -36,9 +37,12 @@
   App.autoTrigger = async function (dir) {
     if (!dir) return;
     let r;
-    try { r = await api('trigger.analyze', { dir, ext: ext(), mode: (App.draft.tag || {}).trigger_mode || 'freq', hints: hints() }); } catch (e) { return; }
+    // auto：不沿用这个训练集上次记下的触发词（标签刚重新反推过）
+    try { r = await api('trigger.analyze', { dir, ext: ext(), mode: (App.draft.tag || {}).trigger_mode || 'freq', hints: hints(dir), auto: true }); } catch (e) { return; }
     if (!r.main) {
-      App.toast('没找到角色名，触发词需要你定一下', 'warn', '设置触发词', () => App.triggerDialog(dir), 12000);
+      // 没填触发词、标签里也没有角色名：不加触发词；标签是覆盖重写的，旧的触发词记录也一起作废
+      if (((App.draft.tag || {}).existing || 'overwrite') === 'overwrite') await api('trigger.clear', { dir }).catch(() => null);
+      App.toast('没填触发词，标签里也没有角色名：没有加触发词', '', '设置触发词', () => App.triggerDialog(dir), 8000);
       return;
     }
     const style = r.kind === 'style';   // 画风训练集只要主触发词
@@ -114,7 +118,7 @@
       renderTm();
     };
     const load = async () => {
-      try { r = await api('trigger.analyze', { dir, ext: ext(), mode: st.mode, typical: st.typical, main: st.main || null, hints: hints() }); }
+      try { r = await api('trigger.analyze', { dir, ext: ext(), mode: st.mode, typical: st.typical, main: st.main || null, hints: hints(dir) }); }
       catch (e) { App.toast(e.message, 'bad'); return; }
       st.main = st.main || r.main; st.typical = r.typical;
       if (!st.prune && (r.prune.features || r.prune.outfit)) st.prune = Object.assign({}, r.prune);   // 这个训练集上次是删标

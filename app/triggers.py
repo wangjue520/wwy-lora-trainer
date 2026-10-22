@@ -102,8 +102,9 @@ def _save(d, info):
         os.replace(tmp, FILE)
 
 
-def analyze(d, ext=".txt", mode="freq", typical=None, main=None, hints=None, feat_th=0.5, outfit_th=0.35):
-    """hints：标签里没有角色名时的备选主触发词（反推页填的触发词、爬图时搜的角色标签），优先用字典里是「角色」的。"""
+def analyze(d, ext=".txt", mode="freq", typical=None, main=None, hints=None, feat_th=0.5, outfit_th=0.35, auto=False):
+    """hints：标签里没有角色名时的备选主触发词（反推页填的触发词、爬图时搜的角色标签），优先用字典里是「角色」的。
+    auto：反推完自动整理——不沿用上次记下的主触发词（标签刚重新反推过，上次的词用户可能已经不要了）。"""
     import tagdict
     data = dataset.load(d, ext)
     items = [it for it in data["items"] if (it["caption"] or "").strip()]
@@ -129,7 +130,7 @@ def analyze(d, ext=".txt", mode="freq", typical=None, main=None, hints=None, fea
     chars = [(t, c) for t, c in freq.most_common() if cat[t] == 4]
     cand_main = [{"tag": t, "count": c, "zh": zh[t]} for t, c in chars[:6]]
     if not main:
-        main = old_main or (chars[0][0] if chars and chars[0][1] >= n * 0.3 else "")
+        main = ("" if auto else old_main) or (chars[0][0] if chars and chars[0][1] >= n * 0.3 else "")
     if not main and hints:
         hs = [h.strip() for h in hints if h and h.strip()]
         hi = tagdict.info([_key(h) for h in hs]) if hs else {}
@@ -220,6 +221,19 @@ def sync_prompts(d, prompts, only_with_main=False):
             n += q["prompt"] != p["prompt"]
         out.append(q)
     return out, n
+
+
+def clear(d):
+    """删掉这个训练集的触发词记录（重新反推、没有触发词时用，免得旧词还被同步到测试提示词 / 送到启动器）。"""
+    with _lock:
+        db = _load_db()
+        if db.pop(os.path.normcase(os.path.abspath(d)), None) is None:
+            return False
+        tmp = FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, FILE)
+    return True
 
 
 def norm_prune(p):

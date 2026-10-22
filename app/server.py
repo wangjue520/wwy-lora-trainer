@@ -622,7 +622,8 @@ def _dict_validate(a):
 @api("trigger.analyze")
 def _trigger_analyze(a):
     import triggers
-    return triggers.analyze(a["dir"], a.get("ext") or ".txt", a.get("mode") or "freq", a.get("typical"), a.get("main"), a.get("hints"))
+    return triggers.analyze(a["dir"], a.get("ext") or ".txt", a.get("mode") or "freq", a.get("typical"), a.get("main"), a.get("hints"),
+                            auto=bool(a.get("auto")))
 
 
 @api("trigger.apply")
@@ -652,6 +653,12 @@ def _sample_defaults(a):
 def _trigger_get(a):
     import triggers
     return triggers.get(a.get("dir"))
+
+
+@api("trigger.clear")
+def _trigger_clear(a):
+    import triggers
+    return triggers.clear(a["dir"])
 
 
 # ---- 标签编辑 ----
