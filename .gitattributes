@@ -3,3 +3,6 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 *.sh text eol=lf
+
+# commit.txt 在 git archive / GitHub 打包下载时自动填成提交号（训练器检查新版本用）
+commit.txt export-subst

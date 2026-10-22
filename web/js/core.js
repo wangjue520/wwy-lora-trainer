@@ -64,6 +64,25 @@
       if (!this.state.env.env) {
         this.toast('训练环境还没安装，训练和本地反推前需要先安装（约 4 GB）', 'warn', '去安装', () => this.go('settings'), 12000);
       }
+      this.checkUpdate();
+      setInterval(() => this.checkUpdate(), 6 * 3600 * 1000);
+    },
+
+    // 新版本提示：GitHub 上有新提交就在版本号旁边标出来，点一下去训练器设置一键更新
+    async checkUpdate(force = false) {
+      let r;
+      try { r = await api('update.check', { force }); } catch (e) { return null; }
+      this.state.update = r;
+      const v = $('#app-version');
+      $('.ver-new', v)?.remove();
+      if (r.new) {
+        const b = h(`<button class="ver-new">有新版本${r.count ? ` · ${r.count} 项更新` : ''}</button>`);
+        const msgs = (r.commits || []).map(c => c.msg).filter(Boolean);
+        b.dataset.tip = '点一下去一键更新' + (msgs.length ? '。更新内容：' + msgs.slice(0, 5).join('；') + (msgs.length > 5 ? '…' : '') : '');
+        b.onclick = () => { this.go('settings'); $('#st-update').click(); };
+        v.append(b);
+      }
+      return r;
     },
 
     applyTheme(t) { document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light'; },

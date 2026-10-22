@@ -55,6 +55,10 @@ code, .mono { font-family: var(--mono); }
 .brand-name { font: 700 15px var(--disp); letter-spacing: .04em; color: #f3f4f0; }
 .brand-sub { font-size: 11px; color: #8d8f94; letter-spacing: .08em; }
 .brand-ver { font: 10px var(--mono); color: var(--yel); letter-spacing: .12em; }
+.ver-new { margin-left: 8px; padding: 1px 6px; border: 0; background: var(--yel); color: var(--ink); font: 700 10px var(--sans);
+  letter-spacing: .04em; cursor: pointer; animation: ver-new-pulse 2s ease-in-out infinite; }
+.ver-new:hover { filter: brightness(1.1); }
+@keyframes ver-new-pulse { 50% { box-shadow: 0 0 0 3px var(--yel-soft); } }
 
 #nav { display: flex; flex-direction: column; gap: 1px; padding: 0 10px; counter-reset: nav; }
 .nav-item { counter-increment: nav; position: relative; display: flex; align-items: center; gap: 11px; height: 38px; padding: 0 12px;

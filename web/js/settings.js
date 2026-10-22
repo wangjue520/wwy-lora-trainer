@@ -7,11 +7,11 @@
     init() {
       const save = async patch => { App.state.settings = await api('settings.save', { patch }); return App.state.settings; };
       $('#st-update').onclick = async () => {
-        if (!(await App.confirm('一键更新', '更新训练器本体，并把 sd-scripts、musubi-tuner 切到新版训练器测试过的版本、自动装好对应的依赖（三样一起更新，版本对应）。<br>正在训练时请不要更新。', '开始更新'))) return;
+        if (!(await App.confirm('一键更新', '更新训练器本体，并把 sd-scripts、musubi-tuner 切到新版训练器测试过的版本、自动装好对应的依赖（三样一起更新，版本对应）。<br>正在训练时请不要更新。' + P.changes(), '开始更新'))) return;
         P.run('update');
       };
       $('#st-update-self').onclick = async () => {
-        if (!(await App.confirm('只更新训练器', '只更新训练器本体（修 bug 用），sd-scripts、musubi-tuner 和训练环境都不动。<br>如果新版训练器要求了别的引擎版本或新依赖，重启训练器后会自动同步。<br>正在训练时请不要更新。', '开始更新'))) return;
+        if (!(await App.confirm('只更新训练器', '只更新训练器本体（修 bug 用），sd-scripts、musubi-tuner 和训练环境都不动。<br>如果新版训练器要求了别的引擎版本或新依赖，重启训练器后会自动同步。<br>正在训练时请不要更新。' + P.changes(), '开始更新'))) return;
         P.run('self');
       };
       $('#st-install').onclick = () => P.run('install');
@@ -53,7 +53,10 @@
       const s = App.state.settings;
       const [env, boot] = await Promise.all([api('env.status'), api('boot')]);
       App.state.env = env; App.state.network = boot.network;
-      $('#st-versions').innerHTML = `<tr><td>训练器</td><td>V${esc(boot.version.version || '0.1.0')}</td></tr>` +
+      const up = App.state.update;
+      $('#st-versions').innerHTML = `<tr><td>训练器</td><td>V${esc(boot.version.version || '0.1.0')}${up && up.local ? ' · ' + esc(up.local.slice(0, 7)) : ''} ${
+        !up ? '' : up.new ? `<span class="badge warn">有新版本${up.count ? ` · ${up.count} 项更新` : ''}</span>` : up.error ? `<span class="badge">${esc(up.error)}</span>` : up.local ? '<span class="badge ok">已是最新</span>' : ''
+        } <button class="btn btn-sm" id="st-checkup">检查更新</button></td></tr>` +
         Object.entries(env.engines).map(([k, e]) => `<tr><td>${esc(k)}</td><td>${e.installed ? esc(e.commit || '已下载')
           + (e.pinned ? (e.match ? ' <span class="badge ok">和训练器匹配</span>' : ` <span class="badge warn">训练器要求 ${esc(e.pinned.slice(0, 7))}</span>`) : '')
           : '<span class="badge bad">未下载</span>'}</td></tr>`).join('')
@@ -61,6 +64,12 @@
       $('#st-env').innerHTML = env.env
         ? `<tr><td>状态</td><td><span class="badge ok">已安装</span></td></tr><tr><td>PyTorch</td><td>${esc(env.torch || '?')} · CUDA ${esc(env.cuda || '?')}</td></tr><tr><td>位置</td><td><code>${esc(env.python)}</code></td></tr>`
         : '<tr><td>状态</td><td><span class="badge bad">未安装</span> 训练和本地反推前需要安装（下载约 4 GB，装好约 8 GB）</td></tr>';
+      $('#st-checkup').onclick = async e => {
+        e.target.disabled = true; e.target.textContent = '检查中…';
+        const r = await App.checkUpdate(true);
+        if (r && !r.new) App.toast(r.error || '已经是最新版本', r.error ? 'warn' : 'ok');
+        P.show();
+      };
       $('#st-install').textContent = env.env ? '重新安装 / 检查' : '安装训练环境';
       $('#st-torchv').value = s.torch_variant || 'cu128';
       $('#st-repo').value = s.update_repo || '';
@@ -100,6 +109,12 @@
         ? `多卡训练：${ids.length} 张卡同时训练，每步处理「单批数量 × ${ids.length}」张图，总步数相应减少。` +
           (navigator.userAgent.includes('Windows') ? 'Windows 下卡间通信走 gloo，比 Linux 慢一些。' : '') + '只对之后加入队列的任务生效。'
         : (n > 1 ? '勾选两张及以上显卡即可多卡训练。' : '');
+    },
+    // 确认更新的弹窗里列出 GitHub 上新加的更新内容
+    changes() {
+      const up = App.state.update;
+      const msgs = up && up.new ? (up.commits || []).map(c => c.msg).filter(Boolean) : [];
+      return msgs.length ? '<br><br><b>这次的更新内容：</b><ul style="margin:6px 0 0;padding-left:18px">' + msgs.map(m => `<li>${esc(m)}</li>`).join('') + '</ul>' : '';
     },
     async run(mode) {
       try { jobId = await api('env.install', { mode }); } catch (e) { App.toast(e.message, 'bad'); return; }

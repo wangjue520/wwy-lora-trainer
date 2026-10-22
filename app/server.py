@@ -55,6 +55,11 @@ def _boot(_):
             "network": "cn" if settings.is_cn() else "global"}
 
 
+@api("update.check")
+def _update_check(a):
+    return updater.check(bool(a.get("force")))
+
+
 @api("settings.save")
 def _settings_save(a):
     return settings.save(a.get("patch") or {})
