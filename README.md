@@ -9,7 +9,7 @@
 |---|---|---|
 | Anima（Cosmos-Predict2 2B + Qwen3-0.6B） | [sd-scripts](https://github.com/kohya-ss/sd-scripts) | `anima_train_network.py` + `networks.lora_anima` |
 | MOSS-Image（5B 单流 DiT + Qwen3.5-9B + FLUX.2 VAE；Base / SFT，官方分片或 ComfyUI 单文件，bf16 / int8 ConvRot） | [sd-scripts](https://github.com/kohya-ss/sd-scripts) | `moss_image_train_network.py` + `networks.lora_generic`（官方预训练时间步分布、ConvRot INT8、8 GB 显卡用文本编码器分层卸载） |
-| MOSS-Image（同上，模型设置里切换引擎；bf16 单文件 + 官方 VAE） | MOSS 专用引擎（[waw1w1/moss_image_trainer](https://github.com/waw1w1/moss_image_trainer)，已获作者同意整合在 `moss_trainer/`） | `moss_trainer.cli cache` → `train`（LyCORIS：LoRA / LoCon / LoHa / LoKr） |
+| MOSS-Image（同上，模型设置里切换引擎；bf16 单文件 + 官方 VAE；**仅 Linux**，Windows 下不显示） | MOSS 专用引擎（[waw1w1/moss_image_trainer](https://github.com/waw1w1/moss_image_trainer)，已获作者同意整合在 `moss_trainer/`） | `moss_trainer.cli cache` → `train`（LyCORIS：LoRA / LoCon / LoHa / LoKr） |
 | SDXL（单文件大模型，含 Illustrious / NoobAI / Pony / Animagine 等微调） | [sd-scripts](https://github.com/kohya-ss/sd-scripts) | `sdxl_train_network.py` + `networks.lora`（v-pred 模型自动开 v-parameterization + zero terminal SNR） |
 | Krea 2（12B MMDiT + Qwen3-VL-4B） | [musubi-tuner](https://github.com/kohya-ss/musubi-tuner) | `krea2_cache_latents.py` → `krea2_cache_text_encoder_outputs.py` → `krea2_train_network.py` |
 

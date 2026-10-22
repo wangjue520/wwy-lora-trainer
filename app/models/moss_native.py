@@ -15,6 +15,7 @@ import os
 import re
 
 import paths
+import plat
 import safetensors_meta
 from .base import F, ParamError, Slot, write_atomic
 from .moss import Moss
@@ -42,6 +43,7 @@ class MossNative(Moss):
     engine_label = "MOSS 专用引擎"
     engine_note = "只认 bf16 单文件和官方 VAE；不支持冻结 / 续训"
     resume = False          # v1：专用引擎的断点续训还没接进来（界面不显示冻结 / 续训）
+    linux_only = True       # 原项目只支持 Linux x86_64（packed 注意力、Triton 内核没在 Windows 上验证过）
     slots = [
         Slot(
             "dit", "主模型（MOSS-Image DiT，bf16 单文件）", ["moss_dit"],
@@ -207,6 +209,8 @@ class MossNative(Moss):
         p = dict(self.defaults())
         p.update(task.get("params") or {})
         m = task.get("models") or {}
+        if plat.IS_WIN:   # 界面已经不列出了，这里拦的是升级前排进队列的旧任务
+            raise RuntimeError("MOSS 专用引擎只支持 Linux，Windows 上请到「模型设置」把 MOSS-Image 切回 sd-scripts 引擎后重新添加任务")
         env_py = self.env_python()
         if not env_py:
             raise RuntimeError("训练环境还没安装")
