@@ -80,32 +80,61 @@ def classify(t):
     return "other"
 
 
-def _load_db():
+CRAWL_FILE = os.path.join(paths.DATA, "crawl_dirs.json")   # 每个文件夹是用哪些标签爬下来的
+
+
+def _load_db(path=FILE):
     try:
-        with open(FILE, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
 
 
+def _write_db(db, path=FILE):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def _dkey(d):
+    return os.path.normcase(os.path.abspath(d))
+
+
 def get(d):
-    return _load_db().get(os.path.normcase(os.path.abspath(d))) if d else None
+    return _load_db().get(_dkey(d)) if d else None
 
 
 def _save(d, info):
     with _lock:
         db = _load_db()
-        db[os.path.normcase(os.path.abspath(d))] = info
-        tmp = FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(db, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, FILE)
+        db[_dkey(d)] = info
+        _write_db(db)
+
+
+def record_crawl(d, tags):
+    """爬图完成后记下这个文件夹是用哪些标签爬的：整理触发词时标签里没有角色名，就拿它当主触发词的备选。
+    只认实际爬进去的文件夹——爬图页的保存位置会跟着训练集位置同步变，拿它判断会把上一次爬图的标签带到别的训练集上。"""
+    tags = [t for t in tags or [] if t and t[0] not in "-~" and ":" not in t]
+    if not d or not tags:
+        return
+    with _lock:
+        db = _load_db(CRAWL_FILE)
+        db[_dkey(d)] = tags
+        _write_db(db, CRAWL_FILE)
+
+
+def crawl_tags(d):
+    return _load_db(CRAWL_FILE).get(_dkey(d)) or [] if d else []
 
 
 def analyze(d, ext=".txt", mode="freq", typical=None, main=None, hints=None, feat_th=0.5, outfit_th=0.35, auto=False):
-    """hints：标签里没有角色名时的备选主触发词（反推页填的触发词、爬图时搜的角色标签），优先用字典里是「角色」的。
+    """hints：标签里没有角色名时的备选主触发词（反推页填的触发词），优先用字典里是「角色」的；
+    没填时用这个文件夹爬图时搜的标签（record_crawl 记下的）。
     auto：反推完自动整理——不沿用上次记下的主触发词（标签刚重新反推过，上次的词用户可能已经不要了）。"""
     import tagdict
+    hints = [h for h in hints or [] if h and h.strip()] or crawl_tags(d)
     data = dataset.load(d, ext)
     items = [it for it in data["items"] if (it["caption"] or "").strip()]
     n = len(items)

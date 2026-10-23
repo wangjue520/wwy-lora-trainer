@@ -5,14 +5,12 @@
   const { esc, h, api } = App;
 
   const sameDir = (a, b) => (a || '').replace(/[\\/]+$/, '').toLowerCase() === (b || '').replace(/[\\/]+$/, '').toLowerCase();
-  // 主触发词的备选：反推页填的触发词、爬图时搜的角色标签（标签里没有角色名时用；爬图标签只在爬到的就是这个训练集时才算）
-  const hints = dir => {
-    const out = [];
-    const tr = (App.draft.tag || {}).trigger;
-    if (tr) out.push(...tr.split(/[,，]/));
-    const c = App.draft.crawl || {};
-    if (!dir || sameDir(c.out_dir, dir)) out.push(...String(c.tags || '').split(/\s+/).filter(t => t && !/^[-~]/.test(t) && !t.includes(':')));
-    return out;
+  // 主触发词的备选（标签里没有角色名时用）：反推页给这个文件夹填的触发词。
+  // 没填时后台用这个文件夹实际爬图时搜的标签——不能看爬图页的保存位置，它会跟着训练集位置同步变成别的文件夹
+  const hints = (dir, trigger) => {
+    const t = App.draft.tag || {};
+    const tr = trigger !== undefined ? trigger : (!dir || sameDir(t.dir, dir) ? t.trigger : '');
+    return tr ? tr.split(/[,，]/) : [];
   };
   const ext = () => ((App.draft.tag || {}).ext) || '.txt';
   // 删标设置：上次在弹窗里选的（反推完自动整理也照这个来）；null = 全标
@@ -34,11 +32,11 @@
     return n;
   };
 
-  App.autoTrigger = async function (dir) {
+  App.autoTrigger = async function (dir, trigger) {
     if (!dir) return;
     let r;
     // auto：不沿用这个训练集上次记下的触发词（标签刚重新反推过）
-    try { r = await api('trigger.analyze', { dir, ext: ext(), mode: (App.draft.tag || {}).trigger_mode || 'freq', hints: hints(dir), auto: true }); } catch (e) { return; }
+    try { r = await api('trigger.analyze', { dir, ext: ext(), mode: (App.draft.tag || {}).trigger_mode || 'freq', hints: hints(dir, trigger), auto: true }); } catch (e) { return; }
     if (!r.main) {
       // 没填触发词、标签里也没有角色名：不加触发词；标签是覆盖重写的，旧的触发词记录也一起作废
       if (((App.draft.tag || {}).existing || 'overwrite') === 'overwrite') await api('trigger.clear', { dir }).catch(() => null);
