@@ -85,7 +85,7 @@ def main():
     except Exception as e:
         print(f"训练环境路径修正失败：{e}", flush=True)
     tasks.load()
-    if not os.path.isfile(scanner.INSTALLS_FILE):
+    if not os.path.isfile(scanner.INSTALLS_FILE) or scanner.launcher_unknown():
         scanner.start_scan_async()
     if s.get("network") == "auto":
         threading.Thread(target=settings.detect_network, daemon=True).start()

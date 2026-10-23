@@ -154,6 +154,9 @@ def scan_installs():
         out = []
         for d in _drives():
             _walk(d, 0, out)
+        ld = launcher_from_env()
+        if ld:   # 从 WWY 启动器里启动的：不管全盘搜索有没有搜到（太深 / 在跳过的目录里），都把它算上
+            out.append({"type": "launcher", "path": ld})
         extra = []
         for it in out:
             if it["type"] == "launcher":
@@ -174,6 +177,22 @@ def scan_state():
     d = dict(_scan_state)
     d["installs"] = _read_json(INSTALLS_FILE, {}).get("items", [])
     return d
+
+
+def launcher_from_env():
+    """WWY 启动器的「LoRA 训练器」页启动训练器时，用 WWY_LAUNCHER_DIR 告诉训练器启动器在哪。"""
+    d = (os.environ.get("WWY_LAUNCHER_DIR") or "").strip()
+    return d if d and os.path.isdir(d) else ""
+
+
+def launcher_unknown():
+    """启动我们的启动器还不在上次搜索的结果里（训练器以前单独用过，后来改从启动器启动）。"""
+    ld = launcher_from_env()
+    if not ld:
+        return False
+    key = os.path.normcase(os.path.abspath(ld))
+    return not any(os.path.normcase(os.path.abspath(it["path"])) == key
+                   for it in _read_json(INSTALLS_FILE, {}).get("items", []) if it.get("type") == "launcher")
 
 
 def start_scan_async():
