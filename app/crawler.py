@@ -288,6 +288,56 @@ def subdir(post, cfg):
     return ""
 
 
+def _folder_name(tag):
+    """新建文件夹用的名字：字典里有中文名就用中文（「弗洛洛（鸣潮）」→「弗洛洛」），否则用标签去掉作品名（phrolova_(wuthering_waves) → phrolova）。"""
+    name = ""
+    try:
+        import tagdict
+        if tagdict.load():
+            r = tagdict.resolve(tag) or tag
+            name = (tagdict.info([r]).get(r) or {}).get("zh") or ""
+    except Exception:
+        pass
+    name = re.split(r"[（(]", name)[0].strip() or re.sub(r"_\([^)]*\)$", "", tag)
+    return re.sub(r'[\\/:*?"<>|]+', "_", name).strip(" ._") or "danbooru"
+
+
+def plan_dir(out_dir, tags):
+    """爬之前检查保存位置：里面已经有别的角色的图（比如上次爬的爱弥斯），这次又爬弗洛洛、也没手动换文件夹，
+    就建议新建「弗洛洛」文件夹爬到里面，免得两个角色的图混成一个训练集。
+    返回 {ask: False} 或 {ask: True, images, prev, name, suggest}。同一个角色接着爬（补图）不问。"""
+    import captionutil as cu
+    import triggers
+    pos = [t for t in split_tags(tags) if t[0] not in "-~" and ":" not in t]
+    if not out_dir or not pos or not os.path.isdir(out_dir):
+        return {"ask": False}
+    imgs = cu.list_images(out_dir)
+    if not imgs:
+        return {"ask": False}
+    try:
+        import tagdict
+        if tagdict.load():
+            pos = [tagdict.resolve(t) or t for t in pos]
+    except Exception:
+        pass
+    def same(prev):   # 搜的第一个标签（一般就是角色）一样 = 同一个角色接着补图，多加几个过滤标签不算换角色
+        return bool(prev) and pos[0].lower() in {t.lower() for t in prev}
+    prev = triggers.crawl_tags(out_dir)
+    if same(prev):
+        return {"ask": False}
+    name = _folder_name(pos[0])
+    # 保存位置本身就是一个角色的文件夹（图直接放在里面）→ 在它旁边建；只是装着几个子文件夹的大文件夹 → 在它里面建
+    direct = any(os.path.dirname(f) == os.path.normpath(out_dir) for f in imgs)
+    parent = os.path.dirname(os.path.normpath(out_dir)) if direct else out_dir
+    if os.path.basename(os.path.normpath(out_dir)) == name:   # 已经在叫这个名字的文件夹里了
+        parent = os.path.dirname(os.path.normpath(out_dir))
+    cand, k = os.path.join(parent, name), 0
+    while os.path.isdir(cand) and cu.list_images(cand) and not same(triggers.crawl_tags(cand)):
+        k += 1
+        cand = os.path.join(parent, f"{name}({k})")
+    return {"ask": True, "images": len(imgs), "prev": prev, "name": os.path.basename(cand), "suggest": cand}
+
+
 def run(job, cfg):
     out = cfg.get("out_dir")
     if not out:

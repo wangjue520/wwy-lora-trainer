@@ -494,6 +494,12 @@ def _crawl_start(a):
     return jobs.start("crawl", f"Danbooru 爬取 · {cfg.get('tags', '')[:30]}", work).id
 
 
+@api("crawl.plan_dir")
+def _crawl_plan_dir(a):
+    import crawler
+    return crawler.plan_dir(a.get("out_dir") or "", a.get("tags") or "")
+
+
 @api("crawl.account")
 def _crawl_account(a):
     import crawler
