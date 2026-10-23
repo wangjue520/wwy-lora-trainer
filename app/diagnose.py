@@ -219,7 +219,9 @@ _MODULE_PKG = {"cv2": "opencv-python==4.10.0.84", "PIL": "pillow", "bitsandbytes
                "voluptuous": "voluptuous", "einops": "einops", "safetensors": "safetensors", "triton": "triton-windows",
                "prodigyopt": "prodigyopt", "lion_pytorch": "lion-pytorch", "schedulefree": "schedulefree",
                "tensorboard": "tensorboard", "sentencepiece": "sentencepiece", "imagesize": "imagesize",
-               "onnxruntime": "onnxruntime-gpu", "xformers": "xformers", "flash_attn": None, "sageattention": None}
+               "onnxruntime": "onnxruntime-gpu", "flash_attn": None, "sageattention": None,
+               # xformers 锁定了具体的 PyTorch 版本：直接 pip install 可能把 PyTorch 换成 PyPI 上的 CPU 版，整个环境就废了
+               "xformers": None}
 
 RULES = [
     # (code, 正则, 标题, 原因, 修复生成函数)
@@ -348,8 +350,8 @@ def _fixes_for(kind, m, task, spec, p, tail):
     if kind == "no_module":
         mod = m.group(1).split(".")[0]
         pkg = _MODULE_PKG.get(mod, mod)
-        if pkg is None:
-            return [fix("attn_torch", "改用默认注意力实现后重试", "把「注意力实现」改回 torch SDPA。")]
+        if pkg is None:   # 可选的注意力加速组件：改回默认注意力，不去装它
+            return _fixes_for("attn_torch", m, task, spec, p, tail)
         return [fix("pip_install", f"安装 {pkg} 后重试", f"在训练环境里执行 pip install {pkg}。", pkg=pkg),
                 fix("repair_env", "修复整个训练环境", "重新安装全部依赖（不会重新下载 PyTorch）。")]
     if kind == "no_cuda":
