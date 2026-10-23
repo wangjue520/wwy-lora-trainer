@@ -90,6 +90,8 @@
       d.output_dir = d.output_dir || this.state.settings.output_dir;
       if (d.subdir_per_task === undefined) d.subdir_per_task = true;
       d.tag = d.tag || {};
+      // 反推完自动整理触发词默认关闭（主触发词容易选错）。老版本默认开着，草稿 / 存档里存下的「开」统一关掉一次，之后自己再勾才生效
+      if (d.tag.auto_trigger_v !== 2) { d.tag.auto_trigger = false; d.tag.auto_trigger_v = 2; }
       if (d.model_type && !this.spec(d.model_type)) d.model_type = '';
       if (d.model_type) this.cur();
     },
