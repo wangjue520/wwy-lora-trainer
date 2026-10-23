@@ -135,7 +135,7 @@ def _run_local(job, cfg, files):
         import diagnose
         d = diagnose.diagnose(tail, {})
         raise RuntimeError(f"{d['title']}：{d['reason']}")
-    return {"count": len(results), "dataset_dir": cfg["dataset_dir"]}
+    return {"count": len(results), "dataset_dir": cfg["dataset_dir"], "trigger": (cfg.get("out") or {}).get("trigger") or ""}
 
 
 # ---------------- API ----------------
@@ -233,7 +233,8 @@ def _run_api(job, cfg, files):
         list(ex.map(one, files))
     if job.error:
         raise RuntimeError(job.error)
-    return {"count": state["ok"], "failed": state["fail"], "dataset_dir": cfg["dataset_dir"]}
+    return {"count": state["ok"], "failed": state["fail"], "dataset_dir": cfg["dataset_dir"],
+            "trigger": (cfg.get("out") or {}).get("trigger") or ""}
 
 
 def test_api(api):

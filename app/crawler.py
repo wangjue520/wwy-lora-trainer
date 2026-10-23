@@ -459,6 +459,12 @@ def run(job, cfg):
             list(ex.map(one, batch))
             if ok + skip < target and idx < len(pool):
                 job.write(f"  {target - ok - skip} 张没下成功，用后面的图补上…")
+    if ok + skip and (cfg.get("folder") or "none") == "none":   # 分了子文件夹的不记：每个子文件夹的角色不一样
+        try:
+            import triggers
+            triggers.record_crawl(out, split_tags(cfg.get("tags")))
+        except Exception:
+            pass
     if ok:
         _prep_alpha(job, out)
     job.write(f"完成：新下载 {ok} 张，已存在 {skip} 张，失败 {fail} 张。保存在 {out}")
