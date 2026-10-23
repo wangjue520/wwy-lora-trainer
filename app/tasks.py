@@ -122,33 +122,81 @@ def read_log(tid, tail=400):
 
 
 # ---------------- 队列操作 ----------------
+def _output_dir(draft, name):
+    """任务的保存位置：开了「每个任务单独建子文件夹」时是 <保存位置>/<保存名称>。"""
+    out_dir = (draft.get("output_dir") or settings.load()["output_dir"]).strip()
+    return os.path.join(out_dir, name or "lora") if draft.get("subdir_per_task", True) else out_dir
+
+
+def _same_path(a, b):
+    return bool(a and b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _name_taken(draft, name):
+    """这个保存名称会不会和别人撞上：队列里的任务（完成了也算，它的 LoRA / 测试图还在那里）或保存位置里上次训练留下的结果。
+    撞上返回原因，没撞上返回 ""。"""
+    d = _output_dir(draft, name)
+    with _lock:
+        for t in _tasks:
+            if _same_path(t.get("output_dir"), d) and (t["params"].get("output_name") or "lora") == name:
+                return f"队列里的任务「{t['name']}」用的就是这个名字和位置"
+    mine = re.compile(re.escape(name) + r"(-\d{6})?(-state|_comfy)?(\.safetensors)?$")
+    try:
+        if any(mine.fullmatch(fn) for fn in os.listdir(d)):
+            return "保存位置里已经有上次训练的同名 LoRA"
+        if any(fn.startswith(name + "_") for fn in os.listdir(os.path.join(d, "sample"))):
+            return "保存位置里已经有上次训练的同名测试图"
+    except OSError:
+        pass
+    return ""
+
+
+def unique_name(draft, name):
+    """保存名称撞上了就加「(1)」「(2)」……（像 Windows 复制文件那样），绝不写进别人的文件夹、覆盖别人的 LoRA。"""
+    if not _name_taken(draft, name):
+        return name
+    m = re.fullmatch(r"(.*?)\((\d+)\)", name)
+    base, n = (m.group(1), int(m.group(2))) if m else (name, 0)
+    for k in range(n + 1, n + 1000):
+        cand = f"{base}({k})"
+        if not _name_taken(draft, cand):
+            return cand
+    return f"{base}({time.strftime('%m%d%H%M%S')})"
+
+
 def add(draft, name=None, start=False):
     spec = models.get(draft.get("model_type"))
     if not spec:
         raise ValueError("请先在「模型设置」选择底模类型")
     p = dict(spec.defaults())
     p.update(draft.get("params") or {})
-    out_dir = (draft.get("output_dir") or settings.load()["output_dir"]).strip()
+    old = (p.get("output_name") or "lora").strip()
+    with _lock:   # 查重和加入队列一起做：连点两次「加入队列」也不会撞名
+        p["output_name"] = unique_name(draft, old)
+        return _add_locked(draft, spec, p, name if name and name != old else None, old, start)
+
+
+def _add_locked(draft, spec, p, name, old, start):
     t = {
         "id": time.strftime("%m%d%H%M%S") + "_" + uuid.uuid4().hex[:4],
         "name": name or p.get("output_name") or "lora",
+        "renamed_from": old if old != p["output_name"] else "",
         "model_type": spec.id,
         "models": dict(draft.get("models") or {}),
         "params": p,
         "sample": copy.deepcopy(draft.get("sample") or {}),
-        "output_dir": os.path.join(out_dir, p.get("output_name") or "lora") if draft.get("subdir_per_task", True) else out_dir,
+        "output_dir": _output_dir(draft, p.get("output_name") or "lora"),
         "status": "queued",
         "gpus": settings.gpu_list(),   # 加入队列时用哪几张卡（之后改设置不影响这个任务）
         "created": time.time(),
         "progress": None,
         "message": "",
     }
-    with _lock:
-        _tasks.append(t)
-        _save()
-        _cond.notify_all()
+    _tasks.append(t)
+    _save()
+    _cond.notify_all()
     if start:
-        start_queue()
+        start_queue()   # _lock 是 RLock，在锁里调没问题
     return t
 
 
@@ -763,12 +811,21 @@ def _run_step(t, s, log):
     return rc, "\n".join(tail)
 
 
+def _task_window(t):
+    """这个任务的文件是在什么时间段里写出来的（加入队列 → 训练结束）。同一个文件夹里别的任务 / 上次训练留下的文件不算它的。"""
+    start = float(t.get("created") or 0) - 60
+    end = t.get("finished") if t.get("status") in ("done", "failed", "stopped", "paused") and t.get("finished") else None
+    return start, (float(end) + 300) if end else time.time() + 3600
+
+
 def list_outputs(t):
     d = t.get("output_dir")
+    name = (t.get("params") or {}).get("output_name") or "lora"
+    lo, hi = _task_window(t)
     res = []
     if d and os.path.isdir(d):
         for fn in sorted(os.listdir(d)):
-            if fn.endswith(".safetensors"):
+            if fn.endswith(".safetensors") and fn.startswith(name) and lo <= os.path.getmtime(os.path.join(d, fn)) <= hi:
                 p = os.path.join(d, fn)
                 res.append({"name": fn, "path": p, "size": os.path.getsize(p), "mtime": os.path.getmtime(p)})
     return res
@@ -777,14 +834,21 @@ def list_outputs(t):
 def list_samples(t):
     """训练中测试图：output_dir/sample/{name}_{000500|e000002}_{序号}_{时间}_{种子}.png"""
     d = os.path.join(t.get("output_dir") or "", "sample")
+    name = (t.get("params") or {}).get("output_name") or "lora"
+    lo, hi = _task_window(t)
     res = []
     if os.path.isdir(d):
         for fn in os.listdir(d):
-            if not fn.lower().endswith((".png", ".jpg", ".webp")):
+            if not fn.lower().endswith((".png", ".jpg", ".webp")) or not fn.startswith(name + "_"):
                 continue
-            m = re.search(r"_(e?)(\d{6})_(\d{2})_(\d{14})(?:_(\d+))?", fn)
+            m = re.search(r"_(e?)(\d{6})_(\d{2})_(\d{14})(?:_(\d+))?", fn[len(name):])
             if not m:
                 continue
+            try:   # 文件名里的出图时间（本地时间）：不在这个任务训练期间的是同名的别的任务 / 上次训练留下的
+                if not lo <= time.mktime(time.strptime(m.group(4), "%Y%m%d%H%M%S")) <= hi:
+                    continue
+            except (ValueError, OverflowError):
+                pass
             res.append({"file": os.path.join(d, fn), "name": fn, "epoch": bool(m.group(1)), "num": int(m.group(2)),
                         "prompt": int(m.group(3)), "time": m.group(4), "seed": m.group(5)})
     res.sort(key=lambda x: (x["time"], x["prompt"]))

@@ -104,11 +104,14 @@
         const st = await api('env.status'); App.state.env = st;
         if (!st.env) { App.toast('训练环境还没安装', 'bad', '去安装', () => App.go('settings'), 10000); return; }
       }
-      const same = (App.queue ? App.queue.tasks : []).find(t => t.status !== 'done' && t.params.output_name === p.output_name);
-      if (same && !(await App.confirm('保存名称重复', `队列里已经有一个叫「${esc(p.output_name)}」的任务，两个任务会写到同一个位置、互相覆盖。仍然加入吗？`, '仍然加入'))) return;
       try {
         const t = await api('queue.add', { draft: App.taskDraft(), start });
         sel = t.id;
+        // 保存名称撞上了别的任务 / 上次训练的结果：后台自动加了 (1)，不会覆盖；配置里的名字也跟着改，下一次接着往后排
+        if (t.renamed_from) {
+          App.setParam('output_name', t.params.output_name); P.outHint(); P.renderSummary();
+          App.toast(`「${t.renamed_from}」已经有训练结果了，这次保存为「${t.params.output_name}」，不会覆盖`, 'ok', null, null, 8000);
+        }
         App.toast(start ? `「${t.name}」已开始（前面有任务会先排队）` : `「${t.name}」已加入队列`, 'ok');
         App.tick();
       } catch (e) { App.toast(e.message, 'bad'); }

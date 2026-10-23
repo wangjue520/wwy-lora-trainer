@@ -107,7 +107,7 @@ def preview_for(task, lora_name):
             eps = [s for s in steps if s["num"] == best["num"]]
     if not eps:
         return None
-    eps.sort(key=lambda s: s["prompt"])
+    eps.sort(key=lambda s: (s["prompt"], -int(s["time"])))   # 同一轮同一条提示词有好几张时用最新的
     return eps[0]["file"]
 
 

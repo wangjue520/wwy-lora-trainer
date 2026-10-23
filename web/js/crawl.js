@@ -189,6 +189,23 @@
       const c = C();
       if (!c.tags.trim()) { App.toast('请添加搜索标签（输完回车，变成标签块才算加上）', 'bad'); return; }
       if (!c.out_dir) { App.toast('请选择保存位置', 'bad'); return; }
+      // 保存位置里已经有别的角色的图（上次爬的），这次又换了角色：问要不要新建一个以这次角色命名的文件夹
+      const plan = await api('crawl.plan_dir', { out_dir: c.out_dir, tags: c.tags }).catch(() => null);
+      if (plan && plan.ask) {
+        const was = plan.prev && plan.prev.length ? `（上次爬的是 ${plan.prev.join(' ')}）` : '';
+        const pick = await new Promise(res => App.modal({ title: '保存位置里已经有图片了', onclose: () => res(null),
+          body: `<div>「${esc(c.out_dir)}」里已经有 ${plan.images} 张图${esc(was)}。</div>
+            <div style="margin-top:8px">这次爬的图放进去会和它们混成同一个训练集。要新建文件夹「<b>${esc(plan.name)}</b>」，爬到里面吗？</div>
+            <div class="hint" style="margin-top:6px">会建在：${esc(plan.suggest)}</div>`,
+          buttons: [{ label: '取消', fn: () => res(null) },
+            { label: '仍然放在这里', fn: () => res('keep') },
+            { label: `新建「${plan.name}」并爬到里面`, cls: 'btn-primary', fn: () => res('new') }] }));
+        if (!pick) return;
+        if (pick === 'new') {
+          c.out_dir = plan.suggest; $('#cr-out').value = c.out_dir;
+          App.syncDataset(c.out_dir, 'crawl');
+        }
+      }
       App.saveDraft(true);
       try { jobId = await api('crawl.start', { cfg: Object.assign({}, c) }); } catch (e) { App.toast(e.message, 'bad'); return; }
       $('#cr-log').innerHTML = ''; $('#cr-use').hidden = true; P.watch();
