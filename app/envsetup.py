@@ -276,6 +276,16 @@ def _zip_download(job, name, ref=None):
 
 
 # ---------------- 安装 ----------------
+# 测试过的 PyTorch，官方 / 南大 / 阿里云的 cu126 / cu128 / cu130 都有这一版（Windows 和 Linux）。
+# 必须带 +cuXXX 写死：只写 torch 时 pip 在 PyTorch 源和 PyPI 之间挑版本最高的，cu128 源最高只到 2.11，
+# PyPI 上更新的 Windows 版 torch 是 CPU 版，结果换几个源都只能装上 CPU 版。PyPI 上没有带 +cuXXX 的包，写死就不会装错。
+TORCH_VERSION, TORCHVISION_VERSION = "2.11.0", "0.26.0"
+
+
+def torch_specs(variant):
+    return [f"torch=={TORCH_VERSION}+{variant}", f"torchvision=={TORCHVISION_VERSION}+{variant}"]
+
+
 def torch_sources():
     v = settings.load().get("torch_variant") or "cu128"
     official = ["--index-url", f"https://download.pytorch.org/whl/{v}"]
@@ -314,7 +324,7 @@ def install_torch(job, force=False):
         try:
             job.write(f"安装 PyTorch（{name}）")
             extra = ["--force-reinstall", "--no-cache-dir"] if force else []
-            _pip(job, ["torch", "torchvision"] + extra + src, proxy=proxy, label=name, watch=True)
+            _pip(job, torch_specs(v) + extra + src, proxy=proxy, label=name, watch=True)
             d = _torch_ok(job)
             if d:
                 return d
