@@ -17,6 +17,14 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "app"))
 
+# 输出一律 UTF-8：被 WWY 启动器（python -I）调用时 PYTHONIOENCODING 不生效，中文 Windows 上会按 GBK 输出，
+# 打印「⚠」这类字符直接 UnicodeEncodeError（换源 / 换线路的提示里就有），安装中途崩掉
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
