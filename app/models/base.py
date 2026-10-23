@@ -72,6 +72,7 @@ class ModelSpec:
     family = ""             # 同一个底模的不同训练引擎填同一个值：界面上合成一张卡片，卡片下面切换引擎
     engine_label = ""       # 切换引擎时显示的名字
     engine_note = ""
+    linux_only = False      # 训练引擎只能在 Linux 上跑：Windows 下界面不列出
     # 主模型下拉框的分组：[variant 值, 组名, 选中这一组的模型时显示的提示]
     variant_groups = [
         ["official", "官方底模（推荐，练出来的 LoRA 在各个微调版上都通用）", ""],
