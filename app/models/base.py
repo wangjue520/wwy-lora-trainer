@@ -233,6 +233,31 @@ def dataset_subsets(dataset_dir, repeats, use_folder_repeats=True):
     return subsets
 
 
+def remove_legacy_latent_cache(params):
+    """删掉训练集里 SD / SDXL 旧格式的潜变量缓存「图片名.npz」（文件名不带尺寸）。
+
+    sd-scripts 为了兼容老版本，图片旁边有这种文件就优先用它，而且只要里面有 latents 就当它能用、不核对尺寸。
+    以前用别的分辨率 / 老版本 sd-scripts / kohya GUI 等练这批图时留下的旧缓存尺寸和这次的分桶对不上，凑成一批时报
+    「stack expects each tensor to be equal size」。只删和图片同名的 .npz（纯缓存），sd-scripts 会按新格式
+    「图片名_宽x高_sdxl.npz」重新缓存。返回删掉的个数。"""
+    n = 0
+    for d in [s["dir"] for s in dataset_subsets(params.get("dataset_dir"), 1)] + \
+             [s["dir"] for s in dataset_subsets(params.get("reg_data_dir"), 1)]:
+        try:
+            names = set(os.listdir(d))
+        except OSError:
+            continue
+        for fn in names:
+            stem, ext = os.path.splitext(fn)
+            if ext.lower() in IMAGE_EXTS and stem + ".npz" in names:
+                try:
+                    os.remove(os.path.join(d, stem + ".npz"))
+                    n += 1
+                except OSError:
+                    pass
+    return n
+
+
 def estimate_steps(params, subsets):
     """估算总步数（分桶会让每轮步数略多一点，这里按理想情况算）。多卡时每张卡各跑一批，每轮步数按卡数平分。"""
     bs = max(1, int(params.get("batch_size") or 1)) * max(1, int(params.get("_num_gpus") or 1))

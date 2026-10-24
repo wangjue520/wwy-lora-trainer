@@ -6,7 +6,7 @@ import os
 import re
 
 import paths
-from .base import F, Slot, split_args
+from .base import F, Slot, remove_legacy_latent_cache, split_args
 from .anima import Anima, OPTIMIZERS
 from .common import common_args, common_network_args, optimizer_name, scheduler_name, override, drop, insert_after
 
@@ -255,6 +255,11 @@ class SDXL(Anima):
         cache_lat = not p.get("color_aug") and not p.get("random_crop")
         ds = self._write_dataset(p, task_dir)
         vpred = self.is_vpred(task)
+        notes = []
+        if cache_lat and p.get("cache_latents_to_disk"):
+            n = remove_legacy_latent_cache(p)
+            if n:
+                notes.append(f"训练集里有 {n} 个旧格式的潜变量缓存（图片名.npz，以前别的分辨率 / 别的训练器留下的），尺寸和这次分桶对不上会让训练报错，已删除，会重新缓存")
 
         a = ["sdxl_train_network.py",
              "--pretrained_model_name_or_path", m.get("dit", ""),
@@ -369,4 +374,4 @@ class SDXL(Anima):
             smp += ["--sample_sampler", p.get("sample_sampler") or "euler_a"]
         a += smp
         a += split_args(p.get("extra_args") or "")
-        return [{"name": "训练", "kind": "train", "cmd": a, "cwd": paths.SD_SCRIPTS}]
+        return [{"name": "训练", "kind": "train", "cmd": a, "cwd": paths.SD_SCRIPTS, "notes": notes}]
