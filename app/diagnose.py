@@ -267,8 +267,9 @@ RULES = [
      "找不到文件", "模型、训练集或配置里的某个路径不存在。", None),
     ("network", r"ConnectionError|ReadTimeout|ConnectTimeout|Max retries exceeded|SSLError|getaddrinfo failed|LocalEntryNotFoundError",
      "网络连接失败", "下载模型 / 组件时连不上服务器。", "network"),
-    ("cache_mismatch", r"cache.*(mismatch|does not match)|latents.*shape|Cached .* invalid",
-     "缓存和当前设置不一致", "分辨率或训练集改动后，旧的缓存不能再用。", "clear_cache"),
+    ("cache_mismatch", r"cache.*(mismatch|does not match)|latents.*shape|Cached .* invalid|stack expects each tensor to be equal size",
+     "缓存和当前设置不一致", "训练集里的潜变量缓存（.npz）尺寸和这次的分桶对不上：分辨率 / 训练集改过，"
+     "或者是以前用别的训练器、别的分辨率练这批图时留下的旧缓存。清掉缓存重新编码就好。", "clear_cache"),
     ("te_cache_conflict", r"shuffle_caption.*cache_text_encoder_outputs|cache_text_encoder_outputs.*shuffle|caption_dropout.*cache",
      "参数冲突：打乱标签 / 标签丢弃 与 文本编码缓存", "这两项不能同时开。", None),
     ("ddp_port", r"EADDRINUSE|address already in use|server socket has failed to listen|通常每个套接字地址.*只允许使用一次",
