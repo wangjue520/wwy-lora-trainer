@@ -34,10 +34,7 @@ def update_self(job):
     g = envsetup._git()
     repo = (settings.load().get("update_repo") or "").strip()
     if os.path.isdir(os.path.join(paths.ROOT, ".git")) and g:
-        job.write("更新训练器本体（git pull）…")
-        rc = job.run_cmd([g, "-C", paths.ROOT, "pull", "--ff-only"], env=settings.child_env())
-        if rc != 0:
-            raise RuntimeError("训练器本体更新失败：本地文件有改动或网络不通，详见日志")
+        _git_update(job, g)
         _check_cache.clear()
         return True
     if not repo:
@@ -70,6 +67,94 @@ def update_self(job):
     _check_cache.clear()
     job.write("训练器本体已更新，重启训练器后生效")
     return True
+
+
+BACKUP_DIR = os.path.join(paths.DATA, "本地改动备份")
+
+
+def _git_run(g, *args):
+    r = subprocess.run([g, "-C", paths.ROOT, "-c", "core.quotepath=false"] + list(args), capture_output=True,
+                       env=settings.child_env(), creationflags=NO_WINDOW)
+    return r.returncode, r.stdout.decode("utf-8", "replace")
+
+
+def _git_update(job, g):
+    """git 装的训练器：拉取 → 本地改过的代码文件先备份再还原 → 快进到最新。
+
+    以前直接 git pull --ff-only，用户手动改过的文件（照着说明打补丁、改默认值）只要 GitHub 上也改了，
+    更新就会一直失败。现在改动先整份备份到 data/本地改动备份/<时间>/（连同 git diff），再更新，不会丢也不会卡住。"""
+    env = settings.child_env()
+    rc, up = _git_run(g, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    up = up.strip() if rc == 0 and "/" in up else "origin/main"
+    remote, branch = up.split("/", 1)
+    job.write(f"更新训练器本体（git，{up}）…")
+    if job.run_cmd([g, "-C", paths.ROOT, "fetch", remote, branch], env=env) != 0:
+        raise RuntimeError("训练器本体更新失败：连不上 GitHub（网络不通），详见日志。"
+                           "可以在「训练器设置 → 网络」换一种连接方式再试")
+    target = f"refs/remotes/{remote}/{branch}"
+    if _git_run(g, "rev-parse", "HEAD")[1].strip() == _git_run(g, "rev-parse", target)[1].strip():
+        job.write("训练器本体已经是最新版本")
+        return
+    ff = _git_run(g, "merge-base", "--is-ancestor", "HEAD", target)[0] == 0
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    bdir = os.path.join(BACKUP_DIR, stamp)
+    backed = []
+
+    def backup(rel, move=False):
+        src = os.path.join(paths.ROOT, rel)
+        if os.path.isfile(src):
+            dst = os.path.join(bdir, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            (shutil.move if move else shutil.copy2)(src, dst)
+        backed.append(rel)
+
+    # 1. 本地改过的代码文件（改动 / 删除 / 暂存）。新版本也改了同一个文件时 git 不肯更新：备份后还原，其余的改动原样保留。
+    #    本地自己提交过东西（和 GitHub 分叉）时要整个对齐 GitHub，所有改动都备份。
+    _, st = _git_run(g, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+    parts = st.split("\0")
+    changed, i = [], 0
+    while i < len(parts):
+        e = parts[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        changed.append(e[3:])
+        if e[0] in "RC":   # 改名 / 复制：后面跟着原文件名
+            changed.append(parts[i])
+            i += 1
+    _, upd = _git_run(g, "diff", "--name-only", "-z", "HEAD", target)
+    upd = {x for x in upd.split("\0") if x}
+    clash = [x for x in changed if x in upd] if ff else changed
+    if clash:
+        os.makedirs(bdir, exist_ok=True)
+        _git_run(g, "diff", "HEAD", "--binary", "--output=" + os.path.join(bdir, "改动.diff"), "--", *clash)
+        for rel in clash:
+            backup(rel)
+        if job.run_cmd([g, "-C", paths.ROOT, "restore", "--source=HEAD", "--staged", "--worktree", "--", *clash], env=env) != 0:
+            raise RuntimeError("训练器本体更新失败：还原本地改动时出错，详见日志")
+        job.write(f"⚠ 这些代码文件本地改过、新版本也改了，已备份后换成新版本：{'、'.join(clash[:10])}{' 等' if len(clash) > 10 else ''}")
+    keep = [x for x in changed if x not in clash]
+    if keep:
+        job.write(f"这些本地改动和这次更新不冲突，原样保留：{'、'.join(keep[:10])}{' 等' if len(keep) > 10 else ''}")
+
+    # 2. 新版本新加的文件，本地正好有一个同名的（不受 git 管理）：挪进备份，不然 git 不肯覆盖
+    _, added = _git_run(g, "diff", "--name-only", "-z", "--diff-filter=A", "HEAD", target)
+    for rel in [x for x in added.split("\0") if x]:
+        if os.path.isfile(os.path.join(paths.ROOT, rel)):
+            backup(rel, move=True)
+
+    # 3. 快进；本地自己提交过东西就先给本地提交建个备份分支，再对齐 GitHub
+    if ff:
+        rc = job.run_cmd([g, "-C", paths.ROOT, "-c", "core.quotepath=false", "merge", "--ff-only", target], env=env)
+    else:
+        name = "local-backup-" + stamp
+        job.run_cmd([g, "-C", paths.ROOT, "branch", name], env=env)
+        job.write(f"⚠ 本地有自己的提交，已保存在分支 {name}，训练器对齐到 GitHub 上的最新版本")
+        rc = job.run_cmd([g, "-C", paths.ROOT, "reset", "-q", "--hard", target], env=env)
+    if rc != 0:
+        raise RuntimeError("训练器本体更新失败，详见日志")
+    if backed:
+        job.write(f"本地改动已备份到 {bdir}（含 改动.diff），需要的话可以从这里找回")
 
 
 def update_all(job):
