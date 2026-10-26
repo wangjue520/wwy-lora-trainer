@@ -48,6 +48,72 @@ class CrawlError(Exception):
     pass
 
 
+def explain(code, body):
+    """Danbooru 返回的不是它自己的 JSON（被 Cloudflare 拦、代理出错）时的中文说明。"""
+    low = body.lower()
+    if "just a moment" in low or "cf-chl" in low or "attention required" in low or "cloudflare" in low:
+        return (f"被 Danbooru 的 Cloudflare 防护拦下了（{code}）。一般是梯子节点的 IP 被它拉黑了："
+                "换一个节点（日本 / 美国 / 新加坡等）再试")
+    if code == 407:
+        return "代理要求用户名密码（407），检查训练器设置里的代理地址"
+    text = re.sub(r"<[^>]+>|\s+", " ", body)[:150].strip()
+    return f"Danbooru 返回错误 {code}：{text}"
+
+
+def _is_json(body):
+    return body.lstrip()[:1] in ("{", "[")
+
+
+# ---------------- 连接方式 ----------------
+# 和下载模型一样有直连 / 系统代理 / 设置里填的代理 / 本机梯子端口几种走法。以前只走系统代理：
+# 梯子没开「系统代理」、或系统代理那个节点被 Danbooru 拦了，就整个爬不了，还被误报成「标签不存在」。
+_route = [0.0, None]   # [选定时间, (线路名, 代理)]
+_route_lock = threading.Lock()
+ROUTE_TTL = 600
+
+
+def _probe(proxy):
+    """用这条线路查一次标签：(通不通, 说明)。"""
+    import netpick
+    req = urllib.request.Request(f"{BASE}/tags.json?search[name]=solo&only=name&limit=1", headers={"User-Agent": UA})
+    try:
+        with netpick.opener(proxy).open(req, timeout=10) as r:
+            body = r.read().decode("utf-8", "replace")
+        if not _is_json(body):
+            return False, "返回的不是 Danbooru 的数据（网络被劫持 / 代理出错）"
+        return True, ""
+    except urllib.error.HTTPError as e:
+        return False, explain(e.code, e.read()[:2000].decode("utf-8", "replace"))
+    except Exception as e:
+        return False, f"连不上（{getattr(e, 'reason', None) or e}）"
+
+
+def pick_route(refresh=False):
+    """选一条能访问 Danbooru 的线路，返回 (线路名, 代理或 None)。都不通就抛 CrawlError，逐条写明原因。"""
+    import netpick
+    with _route_lock:   # 前端补全会同时发好几个请求，只让一个去测
+        if not refresh and _route[1] and time.time() - _route[0] < ROUTE_TTL:
+            return _route[1]
+        rs = netpick.routes(ttl=0 if refresh else 60)
+        with ThreadPoolExecutor(len(rs)) as ex:
+            res = list(ex.map(lambda r: _probe(r[1]), rs))
+        # 都通时：手动填的代理 > 系统代理 > 直连 > 探测到的本机端口
+        prio = ("自定义代理", "系统代理", "直连", "本机代理")
+        ok = sorted((r for r, (good, _) in zip(rs, res) if good),
+                    key=lambda r: next((i for i, p in enumerate(prio) if r[0].startswith(p)), 9))
+        if ok:
+            _route[:] = [time.time(), ok[0]]
+            return ok[0]
+        _route[:] = [0.0, None]
+    lines = [f"  {name}：{why}" for (name, _), (_, why) in zip(rs, res)]
+    if any("Cloudflare" in why for _, why in res):
+        tip = "梯子能连上 Danbooru，但节点被它的防护拦了：换一个节点再试（浏览器能打开 danbooru.donmai.us 的节点一般就行）。"
+    else:
+        tip = ("国内网络要开梯子。梯子没开「系统代理」模式的话，在「训练器设置 → 网络」里填代理地址"
+               "（例如 http://127.0.0.1:7890）。")
+    raise CrawlError("所有连接方式都访问不了 Danbooru：\n" + "\n".join(lines) + "\n" + tip)
+
+
 class Client:
     def __init__(self, job, login="", api_key=""):
         self.job = job
@@ -57,6 +123,13 @@ class Client:
         self._lock = threading.Lock()
         self._last = 0.0
         self.interval = 0.6   # Danbooru 对匿名 / 普通会员有频率限制，搜索接口慢一点更稳
+        self.route = None   # (线路名, 代理)，第一次请求时选
+
+    def opener(self, refresh=False):
+        import netpick
+        if self.route is None or refresh:
+            self.route = pick_route(refresh)
+        return netpick.opener(self.route[1])
 
     def _wait(self):
         with self._lock:
@@ -67,16 +140,17 @@ class Client:
 
     def get(self, path, params=None, retries=6, timeout=30):
         url = f"{BASE}/{path}" + ("?" + urllib.parse.urlencode(params) if params else "")
+        refreshed = False
         for attempt in range(retries):
             if self.job.stop_flag:
                 raise CrawlError("已停止")
             self._wait()
             req = urllib.request.Request(url, headers={"User-Agent": UA, **({"Authorization": self.auth} if self.auth else {})})
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as r:
+                with self.opener().open(req, timeout=timeout) as r:
                     return json.loads(r.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
-                body = e.read()[:400].decode("utf-8", "replace")
+                body = e.read()[:2000].decode("utf-8", "replace")
                 if e.code == 401:
                     raise CrawlError("用户名或 API Key 不对（401）。API Key 在 Danbooru 网页「我的账号 → API Key」里生成。")
                 if e.code == 429 or e.code >= 500:
@@ -84,10 +158,20 @@ class Client:
                     self.job.write(f"  服务器{'限流' if e.code == 429 else '繁忙'}（{e.code}），{w} 秒后重试")
                     time.sleep(w)
                     continue
-                return {"_error": e.code, "_body": body}
+                if not _is_json(body):   # 不是 Danbooru 自己的回答（Cloudflare 拦截页、代理报错）：换条线路再试
+                    if not refreshed:
+                        refreshed = True
+                        self.opener(refresh=True)
+                        continue
+                    raise CrawlError(explain(e.code, body))
+                return {"_error": e.code, "_body": body[:400]}
             except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
                 if attempt == retries - 1:
                     raise CrawlError(f"连不上 Danbooru：{e}。国内网络需要代理 / 加速器。")
+                if attempt >= 1 and not refreshed:   # 连续出错：线路可能断了（梯子关了 / 换了节点），重新选
+                    refreshed = True
+                    self.opener(refresh=True)
+                    continue
                 time.sleep(min(3, timeout / 3))
         raise CrawlError("Danbooru 一直限流，稍后再试")
 
@@ -98,7 +182,7 @@ class Client:
                 return False
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": UA})
-                with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
+                with self.opener().open(req, timeout=60) as r, open(tmp, "wb") as f:
                     while True:
                         b = r.read(1 << 16)
                         if not b:
@@ -146,9 +230,11 @@ def check_tags(client, job, tags):
     for i in range(0, len(tags), 50):
         chunk = tags[i:i + 50]
         d = client.get("tags.json", {"search[name_comma]": ",".join(chunk), "only": "name,post_count", "limit": 100})
-        if isinstance(d, list):
-            for t in d:
-                counts[t["name"]] = t.get("post_count", 0)
+        if not isinstance(d, list):   # 查询本身失败，不能当成「标签不存在」
+            raise CrawlError("查标签失败：" + (explain(d.get("_error"), d.get("_body", "")) if isinstance(d, dict)
+                                              else "Danbooru 返回的数据不对"))
+        for t in d:
+            counts[t["name"]] = t.get("post_count", 0)
     bad = [t for t in tags if counts.get(t, 0) == 0 and not t.startswith(("*",)) and ":" not in t]
     for t in bad:
         sug = client.get("autocomplete.json", {"search[query]": t, "search[type]": "tag_query", "limit": 5})
@@ -345,6 +431,8 @@ def run(job, cfg):
     os.makedirs(out, exist_ok=True)
     want = int(cfg.get("count") or 0)
     client = Client(job, cfg.get("login", "").strip(), cfg.get("api_key", "").strip())
+    client.opener()
+    job.write(f"连接方式：{client.route[0]}")
 
     level, limit = account_limit(client, cfg.get("login"))
     job.write(f"账号：{level}，每次搜索最多 {limit if limit else '不限'} 个标签"
