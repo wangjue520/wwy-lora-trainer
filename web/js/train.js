@@ -44,6 +44,7 @@
         App.draft = JSON.parse(JSON.stringify(App.state.presets[n])); App.normalizeDraft(); App.saveDraft(true);
         App.emit('model_type'); P.show(); App.toast('已读取存档：' + n, 'ok');
       };
+      $('#preset-import').onclick = () => P.importDialog();
       $('#preset-del').onclick = async () => {
         const n = $('#preset-select').value; if (!n) return;
         if (!(await App.confirm('删除存档', `删除存档「${esc(n)}」？`, '删除', true))) return;
@@ -70,6 +71,123 @@
     renderPresets() {
       const s = $('#preset-select'); const names = Object.keys(App.state.presets || {});
       s.innerHTML = '<option value="">配置存档…</option>' + names.map(n => `<option>${esc(n)}</option>`).join('');
+    },
+
+    // ---------------- 导入外部配置：选文件 / 拖进来 / 粘贴 → 后台换算 → 逐项勾选后应用 ----------------
+    importDialog() {
+      const body = h(`<div>
+        <div class="imp-drop"><b>点这里选择配置文件，或者把文件拖进来</b><span class="muted">.toml / .json / .yaml / .sh / .bat / .ps1 / .txt / 练好的 LoRA（.safetensors）</span><input type="file" hidden></div>
+        <div class="hint">认得：kohya sd-scripts / musubi-tuner 的 TOML（含数据集配置）、kohya_ss GUI 的 JSON、秋叶 lora-scripts 的 TOML 和 train.sh / train.ps1、OneTrainer、ai-toolkit、SimpleTuner、
+          训练命令行（accelerate launch … --xxx）、用 sd-scripts 系练出来的 LoRA 文件（读里面记的训练参数）、本训练器的配置存档（data/presets.json）。导入前会列出每一项让你确认，不会直接覆盖。</div>
+        <div style="margin:12px 0 6px">或者把配置内容 / 训练命令直接粘贴在这里：</div>
+        <textarea rows="6" style="width:100%" placeholder="accelerate launch sdxl_train_network.py --pretrained_model_name_or_path=… --network_dim 16 …&#10;或者 TOML / JSON / YAML 的内容"></textarea></div>`);
+      const inp = body.querySelector('input'), drop = body.querySelector('.imp-drop'), ta = body.querySelector('textarea');
+      const go = async (text, name) => {
+        try { const r = await api('config.import', { text, name, current: App.draft.model_type || '' }); m.close(); P.importPreview(r, text, name); }
+        catch (e) { App.toast(e.message, 'bad', null, null, 8000); }
+      };
+      const read = f => P.readCfgFile(f).then(x => go(x.text, x.name)).catch(e => App.toast(e.message, 'bad', null, null, 8000));
+      drop.onclick = () => inp.click();
+      inp.onchange = () => { if (inp.files[0]) read(inp.files[0]); inp.value = ''; };
+      drop.ondragover = e => { e.preventDefault(); drop.classList.add('on'); };
+      drop.ondragleave = () => drop.classList.remove('on');
+      drop.ondrop = e => { e.preventDefault(); drop.classList.remove('on'); if (e.dataTransfer.files[0]) read(e.dataTransfer.files[0]); };
+      const m = App.modal({ title: '导入外部配置', body, wide: true, buttons: [{ label: '取消' },
+        { label: '解析粘贴的内容', cls: 'btn-primary', fn: () => { if (!ta.value.trim()) App.toast('先粘贴内容，或者选一个文件', 'bad'); else go(ta.value, ''); return false; } }] });
+    },
+    // LoRA 文件只读文件头里的元数据（几 KB～几 MB），不用把整个文件传给后台
+    async readCfgFile(f) {
+      if (/\.safetensors$/i.test(f.name)) {
+        const n = Number(new DataView(await f.slice(0, 8).arrayBuffer()).getBigUint64(0, true));
+        if (!(n > 2 && n < 200 * 1024 * 1024 && n + 8 <= f.size)) throw new Error('不是有效的 safetensors 文件');
+        const meta = JSON.parse(new TextDecoder().decode(await f.slice(8, 8 + n).arrayBuffer())).__metadata__;
+        if (!meta) throw new Error('这个 LoRA 文件里没有记录训练参数（训练时关了元数据，或者被合并 / 转换过）');
+        return { text: JSON.stringify(meta), name: f.name };
+      }
+      if (f.size > 20 * 1024 * 1024) throw new Error('文件太大，不像是配置文件');
+      return { text: await f.text(), name: f.name };
+    },
+    async importPreview(r, text, name) {
+      if (r.presets) {
+        const names = Object.keys(r.presets), dup = names.filter(n => (App.state.presets || {})[n]);
+        if (!(await App.confirm('导入配置存档', `文件里有 ${names.length} 份配置存档：${esc(names.join('、'))}。<br>全部加到这台电脑的配置存档里？${dup.length ? `<br><span class="hint warn">同名的会被覆盖：${esc(dup.join('、'))}</span>` : ''}`, '全部导入'))) return;
+        App.state.presets = await api('presets.import', { presets: r.presets }); P.renderPresets(); App.toast(`已导入 ${names.length} 份配置存档，在右边的下拉框里读取`, 'ok');
+        return;
+      }
+      const spec = App.spec(r.target), c = (App.draft.by_model || {})[r.target] || {};
+      const cur = Object.assign(App.defaults(spec), c.params || {}), curM = c.models || {};
+      const fields = Object.fromEntries(spec.params.map(f => [f.key, f]));
+      const show = (k, v) => {
+        if (v === undefined || v === null || v === '') return '（空）';
+        if (typeof v === 'boolean') return v ? '开' : '关';
+        const f = fields[k], o = f && f.type === 'select' && (f.options || []).find(o => String(Array.isArray(o) ? o[0] : o) === String(v));
+        return o && Array.isArray(o) ? String(o[1]).split(' · ')[0].split('（')[0] : String(v);
+      };
+      const same = (a, b) => String(a ?? '') === String(b ?? '') || (a !== '' && b !== '' && a != null && b != null && !isNaN(a) && !isNaN(b) && Number(a) === Number(b));
+      const rows = r.rows.filter(x => !same(x.value, cur[x.key])), nSame = r.rows.length - rows.length;
+      const items = [];   // {el, apply()}
+      const row = (label, sub, o, n, on, apply, off, tag) => {
+        const el = h(`<label class="imp-row ${off ? 'off' : ''}"><input type="checkbox" ${on && !off ? 'checked' : ''} ${off ? 'disabled' : ''}>
+          <span class="k">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="o" title="${esc(o)}">${esc(o)}</span><span class="a">→</span>
+          <span class="n" title="${esc(n)}">${tag ? `<span class="badge bad">${esc(tag)}</span> ` : ''}${esc(n)}</span></label>`);
+        items.push({ el, apply }); return el;
+      };
+      const fams = {}; App.state.specs.forEach(s => { fams[s.family] = (fams[s.family] || 0) + 1; });
+      const body = h(`<div>
+        <div class="imp-head"><span>识别为 <b>${esc(r.format)}</b>${r.family ? ` · 原底模 <b>${esc(r.family === r.detected ? spec.label : (App.spec(r.family) || {}).label || r.family)}</b>` : ''}</span>
+          <span class="row" style="margin-left:auto">套用到<select data-target style="width:220px">${App.state.specs.map(s => `<option value="${s.id}" ${s.id === r.target ? 'selected' : ''}>${esc(s.label + (fams[s.family] > 1 ? ' · ' + s.engine_label : ''))}</option>`).join('')}</select></span></div>
+        ${r.notes.length ? `<div class="issue warn imp-notes">${r.notes.map(n => `<div>${esc(n)}</div>`).join('')}</div>` : ''}
+        <div data-list></div></div>`);
+      const list = body.querySelector('[data-list]');
+      const sec = (t, hint) => list.append(h(`<div class="imp-sec">${esc(t)}${hint ? `<span class="muted">${esc(hint)}</span>` : ''}</div>`));
+      const box = () => { const b = h('<div class="imp-list"></div>'); list.append(b); return b; };
+      if (r.models.length || r.output_dir) {
+        sec('模型文件 / 保存位置', '别的电脑上的路径会按文件名在本机模型库里找');
+        const b = box();
+        r.models.forEach(x => b.append(x.path
+          ? row(x.label, '', curM[x.key] ? App.base(curM[x.key]) : '（未选）', App.base(x.path), x.path !== curM[x.key], cc => { cc.models[x.key] = x.path; }, x.path === curM[x.key])
+          : row(x.label, '', curM[x.key] ? App.base(curM[x.key]) : '（未选）', App.base(x.src), false, null, true, '本机没找到')));
+        if (r.output_dir) b.append(row('LoRA 保存位置', '', App.draft.output_dir || '', r.output_dir, r.output_dir_ok && r.output_dir !== App.draft.output_dir,
+          () => { App.draft.output_dir = r.output_dir; }, !r.output_dir_ok || r.output_dir === App.draft.output_dir, r.output_dir_ok ? '' : '本机没有'));
+      }
+      sec(`参数（${rows.length} 项要改）`, nSame ? `另有 ${nSame} 项和当前一样，不用改` : '');
+      const pb = box();
+      rows.forEach(x => pb.append(row(x.label, x.group, show(x.key, cur[x.key]), show(x.key, x.value), !x.missing, cc => { cc.params[x.key] = x.value; }, false, x.missing ? '本机找不到' : '')));
+      if (!rows.length) pb.append(h('<div class="imp-row off"><span></span><span class="muted">没有要改的参数</span></div>'));
+      if (r.sample) {
+        const s = r.sample, ps = s.prompts || [];
+        sec('训练中测试');
+        const b = box(), cs = c.sample || {};
+        const iv = s.every_n_steps ? `每 ${s.every_n_steps} 步` : s.every_n_epochs ? `每 ${s.every_n_epochs} 轮` : '';
+        if (ps.length) b.append(row('测试提示词', '', `${(cs.prompts || []).length} 条`, `${ps.length} 条：${ps.map(p => p.prompt).join(' / ')}`, true,
+          cc => { cc.sample.prompts = ps.map(p => Object.assign({}, p)); cc.sample.auto_default = false; cc.sample.enabled = true; }));
+        if (iv) b.append(row('出图间隔', '', cs.follow_save !== false ? '跟着保存' : cs.every_n_steps ? `每 ${cs.every_n_steps} 步` : `每 ${cs.every_n_epochs || 0} 轮`, iv, true,
+          cc => { Object.assign(cc.sample, { follow_save: false, every_n_steps: s.every_n_steps || 0, every_n_epochs: s.every_n_steps ? 0 : (s.every_n_epochs || 0), enabled: true }); }));
+        if (s.at_first) b.append(row('训练前先出一次图', '', cs.at_first ? '开' : '关', '开', !cs.at_first, cc => { cc.sample.at_first = true; }));
+      }
+      const unk = Object.entries(r.unknown || {});
+      if (r.skipped.length || unk.length) list.append(h(`<details class="imp-more"><summary class="muted">没有导入的设置（${r.skipped.length + unk.length}）</summary><div class="fix-list">
+        ${r.skipped.map(x => `<div><b>${esc(x.key)}</b> = ${esc(x.value)}<span class="muted" style="margin-left:auto">${esc(x.reason)}</span></div>`).join('')}
+        ${unk.map(([k, v]) => `<div><b>${esc(k)}</b> = ${esc(v)}<span class="muted" style="margin-left:auto">这个训练器没有对应的设置</span></div>`).join('')}</div>
+        <div class="hint">需要的话可以写进「高级参数 → 额外命令行参数」。</div></details>`));
+      const m = App.modal({ title: '导入外部配置 · 确认要改的设置', body, wide: true, buttons: [{ label: '取消' },
+        { label: '应用到当前配置', cls: 'btn-primary', fn: () => P.importApply(r, items) }] });
+      body.querySelector('[data-target]').onchange = async e => {
+        try { const r2 = await api('config.import', { text, name, target: e.target.value, current: App.draft.model_type || '' }); m.close(); P.importPreview(r2, text, name); }
+        catch (err) { App.toast(err.message, 'bad'); }
+      };
+    },
+    importApply(r, items) {
+      const todo = items.filter(x => x.apply && x.el.querySelector('input').checked);
+      if (!todo.length) { App.toast('没有勾选任何一项', 'bad'); return false; }
+      if (r.target !== App.draft.model_type) App.setModelType(r.target);
+      const c = App.cur(), ds = c.params.dataset_dir;
+      todo.forEach(x => x.apply(c));
+      App.saveDraft(true);
+      if (c.params.dataset_dir && c.params.dataset_dir !== ds) App.syncDataset(c.params.dataset_dir, 'params');
+      App.emit('model_type'); App.emit('params');
+      P.show();
+      App.toast(`已导入 ${todo.length} 项设置。想留一份可以点「存档当前配置」`, 'ok', null, null, 8000);
     },
     async renderSummary() {
       const spec = App.spec(), el = $('#train-summary');

@@ -16,6 +16,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import captionutil as cu
+import cfgimport
 import dataset
 import diagnose
 import envsetup
@@ -88,6 +89,21 @@ def _presets_delete(a):
     p.pop(a["name"], None)
     settings.save_presets(p)
     return p
+
+
+@api("presets.import")
+def _presets_import(a):
+    """把另一台电脑的配置存档文件整份并进来（同名覆盖）。"""
+    p = settings.load_presets()
+    p.update(a.get("presets") or {})
+    settings.save_presets(p)
+    return p
+
+
+@api("config.import")
+def _config_import(a):
+    """读取别的训练器导出的配置 / 命令行 / LoRA 训练信息，返回换算后的预览（界面上勾选后再应用）。"""
+    return cfgimport.parse(a.get("text") or "", a.get("name") or "", a.get("target") or "", a.get("current") or "")
 
 
 @api("gpu")

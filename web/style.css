@@ -473,6 +473,31 @@ select { padding-right: 6px; cursor: pointer; }
 .fix-opt .fd { font-size: 12px; color: var(--text-faint); }
 .fix-list { margin-top: 8px; max-height: 180px; overflow: auto; border: 1px solid var(--line); font: 11.5px var(--mono); }
 .fix-list > label, .fix-list > div { display: flex; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line-2); align-items: center; }
+/* 导入外部配置 */
+.imp-drop { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 12px; border: 1px dashed var(--line-strong); background: var(--panel-2); cursor: pointer; text-align: center; }
+.imp-drop:hover, .imp-drop.on { border-color: var(--ink); box-shadow: inset 4px 0 0 var(--yel); }
+.imp-drop span { font-size: 11.5px; }
+.imp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.imp-head .row { gap: 8px; }
+.imp-notes > div + div { margin-top: 4px; }
+.imp-sec { font: 700 12.5px var(--disp); letter-spacing: .04em; margin: 14px 0 6px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.imp-sec .muted { font: 11.5px var(--sans); letter-spacing: 0; }
+.imp-list { border: 1px solid var(--line); max-height: 320px; overflow: auto; }
+.imp-row { display: grid; grid-template-columns: 18px minmax(130px, 1fr) minmax(0, 1fr) 14px minmax(0, 1.2fr); gap: 8px; align-items: center; padding: 5px 10px; border-bottom: 1px solid var(--line-2); font-size: 12.5px; cursor: pointer; }
+.imp-row:last-child { border-bottom: 0; }
+.imp-row:hover { background: var(--panel-2); }
+.imp-row.off { cursor: default; opacity: .6; }
+.imp-row small { color: var(--text-faint); margin-left: 6px; font-size: 11px; }
+.imp-row .o, .imp-row .n { font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-row .o, .imp-row .a { color: var(--text-faint); }
+.imp-row .n { font-weight: 600; }
+.imp-more { margin-top: 12px; }
+.imp-more summary { cursor: pointer; }
+@media (max-width: 640px) {
+  .imp-row { grid-template-columns: 18px minmax(0, 1fr); }
+  .imp-row .o, .imp-row .a { display: none; }
+  .imp-row .n { grid-column: 2; }
+}
 .issue { border-left: 4px solid var(--bad); padding: 8px 12px; background: var(--panel-2); margin-bottom: 12px; }
 .issue.warn { border-left-color: var(--warn); }
 .issue b { display: block; font-size: 14px; margin-bottom: 3px; }
