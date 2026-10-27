@@ -48,7 +48,7 @@ def common_fields(d=None, optimizers=None, timesteps=None, schedulers=None):
           help="按面积分桶，非方图会自动按比例裁到接近这个面积。"),
         F("resolution_wh", "自定义分辨率（宽,高）", "text", v("resolution_wh", "1024,1024"), "basic", show_if={"resolution": "custom"},
           help="例如 896,1152。必须是 64 的倍数。"),
-        F("network_dim", "网络维度 dim", "int", v("network_dim", 32), "basic", min=1, max=512,
+        F("network_dim", "网络维度 dim", "int", v("network_dim", 16), "basic", min=1, max=512,
           help="LoRA 容量。画风 / 角色 16–32 足够，太大容易过拟合、文件也大。"),
         F("network_alpha", "网络 alpha", "float", v("network_alpha", 16), "basic", min=0, max=512, step=1,
           help="缩放系数，实际强度 = alpha / dim。alpha 越小，等效学习率越低。"),
