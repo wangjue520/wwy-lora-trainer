@@ -265,7 +265,7 @@ class Anima(ModelSpec):
              "--save_model_as", p.get("save_model_as") or "safetensors",
              "--network_module", {"lokr": "networks.lokr", "loha": "networks.loha"}.get(p.get("network_type"), self.LORA_MODULE),
              "--network_dim", str(int(p.get("network_dim") or 16)),
-             "--network_alpha", str(p.get("network_alpha") or 1),
+             "--network_alpha", str(p.get("network_alpha") or p.get("network_dim") or 16),
              "--learning_rate", str(p.get("learning_rate")),
              "--optimizer_type", optimizer_name(p),
              "--lr_scheduler", scheduler_name(p),

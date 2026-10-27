@@ -157,7 +157,7 @@ class SDXL(Anima):
     def params(self):
         f = drop(super().params(), *_ANIMA_ONLY)
         for k, v in {"learning_rate": 1e-4, "optimizer_type": "AdamW8bit", "lr_scheduler": "cosine", "lr_warmup_steps": 0,
-                     "output_name": "mylora_sdxl_v1", "network_dim": 16, "network_alpha": 8, "batch_size": 2, "epochs": 10,
+                     "output_name": "mylora_sdxl_v1", "network_dim": 16, "network_alpha": 16, "batch_size": 2, "epochs": 10,
                      "repeats": 10, "text_encoder_lr": 1e-5}.items():
             override(f, k, default=v)
         override(f, "optimizer_type", options=OPTIMIZERS)
@@ -267,7 +267,7 @@ class SDXL(Anima):
              "--save_model_as", p.get("save_model_as") or "safetensors",
              "--network_module", {"lokr": "networks.lokr", "loha": "networks.loha"}.get(p.get("network_type"), "networks.lora"),
              "--network_dim", str(int(p.get("network_dim") or 16)),
-             "--network_alpha", str(p.get("network_alpha") or 1),
+             "--network_alpha", str(p.get("network_alpha") or p.get("network_dim") or 16),
              "--learning_rate", str(p.get("learning_rate")),
              "--optimizer_type", optimizer_name(p),
              "--lr_scheduler", scheduler_name(p),
