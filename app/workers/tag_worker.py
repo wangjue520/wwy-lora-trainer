@@ -314,6 +314,16 @@ class VLM:
         self.proc = AutoProcessor.from_pretrained(d, **pkw)
         self.cfg = cfg
         self.torch = torch
+        # 停止符：有的模型（ToriiGate 0.5）没带 generation_config.json，只认 <|endoftext|>，
+        # 可对话模板每句话以 <|im_end|> 结尾——写完描述也停不下来，每张图都生成满 max_tokens（被当特殊符号删掉，看不出来）
+        tok = getattr(self.proc, "tokenizer", self.proc)
+        ids = [model.generation_config.eos_token_id, getattr(tok, "eos_token_id", None)]
+        ids = [i for x in ids for i in (x if isinstance(x, list) else [x]) if i is not None]
+        for t in ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<end_of_turn>"):
+            i = tok.convert_tokens_to_ids(t) if t in tok.get_vocab() else None
+            if i is not None:
+                ids.append(i)
+        self.eos = sorted(set(ids)) or None
 
     def __call__(self, img, tags=None):
         torch = self.torch
@@ -347,7 +357,7 @@ class VLM:
             out = self.model.generate(**inputs, max_new_tokens=int(cfg.get("max_tokens") or 512),
                                       do_sample=float(cfg.get("temperature") or 0) > 0,
                                       temperature=float(cfg.get("temperature") or 0.6) or None, top_p=0.9,
-                                      repetition_penalty=1.05)
+                                      repetition_penalty=1.05, eos_token_id=self.eos)
         res = self.proc.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
         del inputs, out
         torch.cuda.empty_cache()   # 每张图之后还回显存，避免越用越多
