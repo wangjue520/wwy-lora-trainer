@@ -313,7 +313,7 @@ def stop_current():
 # ---------------- 冻结 / 续训 ----------------
 def freeze_current():
     """冻结正在训练的任务：训练进程在下一步开始前保存完整训练状态后退出，显存全部释放；队列也停下。
-    还没进入训练（体检 / 缓存）时直接停掉，继续时从上次的进度（或从头）开始。"""
+    还没进入训练（体检 / 缓存）时直接停掉，继续时从上次的进度（或从头）开始；已经练完、在做导出这类收尾时让它做完。"""
     with _lock:
         t = _find(_state.get("current") or "")
         if not t or t["status"] not in ("running", "checking"):
@@ -325,11 +325,13 @@ def freeze_current():
         _state["paused"] = True     # 冻结后不开始下一个任务，把显卡让出来
         training = (t["status"] == "running" and (t.get("progress") or {}).get("step") is not None
                     and _state.get("step_kind") == "train")
-        t["message"] = "正在保存训练进度，这一步跑完就停…" if training else "正在停止…"
+        post = _state.get("step_kind") == "post"
+        t["message"] = ("正在保存训练进度，这一步跑完就停…" if training else
+                        "训练已经练完，收尾做完就停…" if post else "正在停止…")
         proc = _state.get("proc")
     if training:
         open(os.path.join(task_dir(t), "pause.flag"), "w").close()
-    elif proc:
+    elif proc and not post:
         kill_tree(proc.pid)
     return True
 
@@ -547,15 +549,14 @@ def _run_task(t):
         _set(t, status="running", started=time.time(), finished=None, error=None, issues=None,
              step_names=[s["name"] for s in steps], step_index=0, message="", progress={"loss_hist": hist})
         for i, s in enumerate(steps):
-            if _state["freeze_req"]:   # 体检 / 上一步时就点了冻结
-                _freeze_done(t, td, "", log)
+            if _state["freeze_req"] and s["kind"] != "post" and _freeze_done(t, td, None, 0, "", log):   # 体检 / 上一步时就点了冻结
                 return
             for n in s.get("notes") or []:
                 log("[提示] " + n)
             _set(t, step_index=i, message=s["name"] + "…")
             rc, tail = _run_step(t, s, log)
-            if _state["freeze_req"]:
-                _freeze_done(t, td, tail, log)
+            froze = _state["freeze_req"]
+            if froze and _freeze_done(t, td, s, rc, tail, log):
                 return
             if _state["stop_req"]:
                 _set(t, status="stopped", finished=time.time(), message="已手动停止")
@@ -566,11 +567,14 @@ def _run_task(t):
                 continue
             if rc != 0:
                 d = diagnose.diagnose(tail, t)
+                if froze:   # 冻结时训练进程没存下进度就报错退出了（上次冻结 / 每轮保存的进度还在，能接着练）
+                    d = dict(d, title="冻结失败：" + d["title"])
                 log(f"===== 失败：{d['title']} =====")
                 _set(t, status="failed", finished=time.time(), error=d, message=d["title"])
                 return
         _set(t, status="done", finished=time.time(), message="训练完成", outputs=list_outputs(t), resume=None)
-        shutil.rmtree(os.path.join(td, PAUSE_STATE), ignore_errors=True)
+        for x in ("", ".saving", ".old"):
+            shutil.rmtree(os.path.join(td, PAUSE_STATE + x), ignore_errors=True)
         log(f"===== {time.strftime('%H:%M:%S')} 训练完成 =====")
     except ParamError as e:   # 底模规格开训前检查出的参数问题（不是程序出错）
         log(f"===== 参数需要调整：{e} =====")
@@ -614,14 +618,25 @@ def _reap_children(pid, proc, wait=20):
         pass
 
 
-def _freeze_done(t, td, tail, log):
+def _freeze_done(t, td, s, rc, tail, log):
+    """点了冻结之后这一步结束了。训练进程存好进度退出 / 还没开始训练就被结束：标成已冻结，返回 True。
+    其余情况返回 False，照实按停止 / 失败 / 完成处理，上次冻结存下的进度不动（失败 / 停止后还能从那里接着练）：
+    让训练进程存进度、它却没存就退出了（存的时候报错，或者中途又点了停止），
+    或者训练已经练完了（最后一步之后不会再检查冻结；导出这类收尾步骤也照常做完）。"""
     _state["freeze_req"] = False
     flag = os.path.join(td, "pause.flag")
-    saved = os.path.exists(flag) and "LORA_PAUSED" in tail
+    asked = os.path.exists(flag)   # 点冻结时正在训练：让训练进程在下一步之前自己存进度
+    saved = asked and "LORA_PAUSED" in tail
     try:
         os.remove(flag)
     except OSError:
         pass
+    if not saved and (asked or (s and s["kind"] == "post")):
+        if rc == 0:
+            log("[提示] 点冻结时训练已经练完了，按正常结束处理")
+        elif not _state["stop_req"]:
+            log("[提示] 冻结没有成功：训练进程没存下进度就退出了")
+        return False
     if saved:
         info = resume_info(dict(t, status="paused"))
         msg = f"已冻结在第 {info['base']} 步，显存已释放；点「继续」接着练" if info else "已冻结；点「继续」接着练"
@@ -631,6 +646,7 @@ def _freeze_done(t, td, tail, log):
         msg = "已冻结（还没开始训练），继续时从上次保存的进度接着练，没有进度就从头开始"
     _set(t, status="paused", finished=time.time(), message=msg)
     log(f"===== {msg} =====")
+    return True
 
 
 def _run_step(t, s, log):
