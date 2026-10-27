@@ -73,7 +73,7 @@ def _prefetch(job, conf):
         if repo:
             need.append((repo, os.path.join(conf["models_dir"], repo.replace("/", "__")), None))
     for repo, local, pats in need:
-        if os.path.isfile(os.path.join(local, ".lora_complete")):
+        if downloader.is_verified(local):   # 旧版只比大小的标记不算，补校验一次 sha256（坏了会自动重下）
             continue
         try:
             downloader.download_repo(job, repo, local, pats)

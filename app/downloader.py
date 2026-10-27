@@ -124,39 +124,95 @@ def _same_route_url(url, repo, file):
     return url
 
 
+MARK = ".lora_complete"
+MARK_VERSION = 2   # 1 = 空文件（只比过大小）；2 = 记了每个文件校验过的 sha256
+
+
+def sha256_file(path, job=None):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            if job is not None and job.stop_flag:
+                raise RuntimeError("已取消")
+            b = f.read(16 * 1024 * 1024)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+def is_verified(local_dir):
+    """仓库是否已经下完并校验过 sha256。以前的标记是空文件（只比大小，分块拼错了也认不出来），算没校验。"""
+    try:
+        with open(os.path.join(local_dir, MARK), encoding="utf-8") as f:
+            return int(json.load(f).get("v") or 0) >= MARK_VERSION
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def download_repo(job, repo, local_dir, patterns=None):
-    """把模型仓库里需要的文件下到 local_dir（反推模型等多文件仓库）。已经下好、大小对得上的文件跳过。
+    """把模型仓库里需要的文件下到 local_dir（反推模型等多文件仓库）。已经下好、大小和 sha256 都对得上的文件跳过。
     用仓库里最大的文件测一次线路，所有文件共用；大文件多连接分块下载，出错 / 变慢自动换线路。
-    下完写一个 .lora_complete 标记，反推进程看到它就不再联网检查。"""
+    每个文件下完都和官方 sha256 比一遍（多连接分块 + 中途换线路时，拼错一块文件大小照样对，只有哈希能发现）；
+    不对就删掉换线路重下。都对了写 .lora_complete 标记，反推进程看到它就不再联网检查。"""
     import fnmatch
     os.makedirs(local_dir, exist_ok=True)
-    mark = os.path.join(local_dir, ".lora_complete")
-    files = netpick.list_repo_files(repo)
-    files = [(p, s) for p, s in files if not patterns or any(fnmatch.fnmatch(p, pt) for pt in patterns)]
-    files = [(p, s) for p, s in files if not p.startswith(".") and not p.endswith((".md", ".gitattributes"))
+    mark = os.path.join(local_dir, MARK)
+    files = netpick.list_repo_files_sha(repo)
+    files = [f for f in files if not patterns or any(fnmatch.fnmatch(f[0], pt) for pt in patterns)]
+    files = [(p, s, h) for p, s, h in files if not p.startswith(".") and not p.endswith((".md", ".gitattributes"))
              and (patterns or not p.lower().endswith((".bin", ".pt", ".pth", ".msgpack", ".h5", ".ckpt"))
-                  or not any(q.endswith(".safetensors") for q, _ in files))]   # 有 safetensors 时不下重复的旧格式权重
+                  or not any(q.endswith(".safetensors") for q, _, _ in files))]   # 有 safetensors 时不下重复的旧格式权重
     if not files:
         raise RuntimeError(f"模型仓库 {repo} 里没有找到需要的文件")
-    todo = [(p, s) for p, s in files if not (os.path.isfile(os.path.join(local_dir, p)) and (not s or os.path.getsize(os.path.join(local_dir, p)) == s))]
-    total = sum(s for _, s in files)
-    if not todo:
-        open(mark, "w").close()
-        return local_dir
-    big = max(todo, key=lambda x: x[1])
-    job.write(f"下载 {repo}：{len(todo)} 个文件，共 {sum(s for _, s in todo) / 1e9:.2f} GB；测试下载线路…")
-    ranked = netpick.rank_hf(repo, big[0])
-    if not ranked:
-        raise RuntimeError(f"{repo} 所有下载线路都连不上（hf-mirror、魔搭、HF 官方 × 直连 / 代理都试过了）。"
-                           "请检查网络；挂梯子的话确认梯子已连接，或者到「训练器设置 → 网络」填写代理地址。")
-    job.write("线路测速：" + netpick.describe(ranked))
-    for k, (p, s) in enumerate(sorted(todo, key=lambda x: x[1])):
-        d = os.path.join(local_dir, os.path.dirname(p))
-        job.write(f"[{k + 1}/{len(todo)}] {p}（{s / 1e6:.1f} MB）")
-        download(job, repo, p, d, os.path.basename(p), ranked=ranked, quiet=True)
-        ranked = _promote(ranked, job)
-    open(mark, "w").close()
-    job.write(f"{repo} 下载完成（{total / 1e9:.2f} GB）")
+    try:
+        with open(mark, encoding="utf-8") as f:
+            checked = json.load(f).get("sha256") or {}
+    except (OSError, ValueError, AttributeError):
+        checked = {}
+    todo = []
+    for p, s, h in files:
+        fp = os.path.join(local_dir, p)
+        if not os.path.isfile(fp) or (s and os.path.getsize(fp) != s):
+            todo.append((p, s, h))
+        elif h and checked.get(p) != h:
+            job.write(f"校验已下载的 {p}（{s / 1e9:.2f} GB）…")
+            if sha256_file(fp, job) == h:
+                checked[p] = h
+            else:
+                job.write(f"⚠ {p} 和官方文件不一致（之前下载时损坏），删掉重下")
+                os.remove(fp)
+                todo.append((p, s, h))
+    total = sum(s for _, s, _ in files)
+    if todo:
+        big = max(todo, key=lambda x: x[1])
+        job.write(f"下载 {repo}：{len(todo)} 个文件，共 {sum(s for _, s, _ in todo) / 1e9:.2f} GB；测试下载线路…")
+        ranked = netpick.rank_hf(repo, big[0])
+        if not ranked:
+            raise RuntimeError(f"{repo} 所有下载线路都连不上（hf-mirror、魔搭、HF 官方 × 直连 / 代理都试过了）。"
+                               "请检查网络；挂梯子的话确认梯子已连接，或者到「训练器设置 → 网络」填写代理地址。")
+        job.write("线路测速：" + netpick.describe(ranked))
+        for k, (p, s, h) in enumerate(sorted(todo, key=lambda x: x[1])):
+            d = os.path.join(local_dir, os.path.dirname(p))
+            job.write(f"[{k + 1}/{len(todo)}] {p}（{s / 1e6:.1f} MB）")
+            for attempt in range(3):
+                dest = download(job, repo, p, d, os.path.basename(p), ranked=ranked, quiet=True)
+                ranked = _promote(ranked, job)
+                if not h:
+                    break
+                if sha256_file(dest, job) == h:
+                    checked[p] = h
+                    break
+                os.remove(dest)
+                if attempt == 2:
+                    raise RuntimeError(f"{p} 连续 3 次下载都和官方 sha256 对不上，线路可能在篡改或截断文件，换个网络再试")
+                job.write(f"⚠ {p} 下载后校验不通过（和官方 sha256 不一致），换一条线路重下")
+                ranked = ranked[1:] + ranked[:1]
+    with open(mark, "w", encoding="utf-8") as f:
+        json.dump({"v": MARK_VERSION, "repo": repo, "sha256": checked}, f)
+    if todo:
+        job.write(f"{repo} 下载完成（{total / 1e9:.2f} GB）")
     return local_dir
 
 
