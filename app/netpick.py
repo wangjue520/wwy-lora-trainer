@@ -216,6 +216,12 @@ def best_hf():
 
 def list_repo_files(repo, routes_ranked=None):
     """列出模型仓库里的文件 [(路径, 大小)]：依次试 hf-mirror / 魔搭 / HF 官方的接口（各连接方式），哪个通用哪个。"""
+    return [(p, s) for p, s, _ in list_repo_files_sha(repo)]
+
+
+def list_repo_files_sha(repo):
+    """同 list_repo_files，多一项官方 sha256（HF 的 LFS oid / 魔搭的 Sha256），拿不到时为 ""。
+    小文件在 HF 上不是 LFS，只有 git 的 sha1，这种不算 sha256，下完只比大小。"""
     tries = []
     for rname, proxy in routes():
         tries += [(f"hf-mirror（{rname}）", f"https://hf-mirror.com/api/models/{repo}/tree/main?recursive=true", proxy, "hf"),
@@ -227,9 +233,11 @@ def list_repo_files(repo, routes_ranked=None):
             with open_url(url, proxy, timeout=12) as r:
                 d = json.loads(r.read().decode("utf-8"))
             if kind == "hf":
-                files = [(x["path"], int(x.get("size") or 0)) for x in d if x.get("type") == "file"]
+                files = [(x["path"], int(x.get("size") or 0), ((x.get("lfs") or {}).get("oid") or "").lower())
+                         for x in d if x.get("type") == "file"]
             else:
-                files = [(x["Path"], int(x.get("Size") or 0)) for x in ((d.get("Data") or {}).get("Files") or []) if x.get("Type") == "blob"]
+                files = [(x["Path"], int(x.get("Size") or 0), (x.get("Sha256") or "").lower())
+                         for x in ((d.get("Data") or {}).get("Files") or []) if x.get("Type") == "blob"]
             if files:
                 return files
         except Exception as e:
