@@ -553,4 +553,5 @@ def pin_current():
 
 
 def pip_install(job, pkg):
-    _pip(job, pkg.split())
+    """报错修复里的「安装 xxx 后重试」。同样钉住 PyTorch：xformers / bitsandbytes 这类包会顺手把 torch 换成 CPU 版。"""
+    _pip(job, pkg.split() + _torch_pin())
