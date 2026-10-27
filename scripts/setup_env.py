@@ -91,7 +91,7 @@ class ConsoleJob:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--torch", choices=["cu124", "cu126", "cu128", "cu130"], help="PyTorch 的 CUDA 版本")
+    ap.add_argument("--torch", choices=["cu126", "cu128", "cu130"], help="PyTorch 的 CUDA 版本")
     ap.add_argument("--repair", action="store_true", help="重装依赖（不重装 PyTorch）")
     ap.add_argument("--reinstall-torch", action="store_true", help="重装 PyTorch")
     ap.add_argument("--check", action="store_true", help="只查看训练环境状态")

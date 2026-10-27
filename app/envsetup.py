@@ -310,6 +310,42 @@ def _torch_ok(job):
     return d if d.get("cuda") else None
 
 
+def installed_torch():
+    """不 import torch（要好几秒），直接读训练环境里的 torch/version.py：(版本号, CUDA 版本)。没装返回 (None, None)，
+    CPU 版的 CUDA 版本是 None。"""
+    import glob
+    pats = [os.path.join(paths.ENV, "Lib", "site-packages", "torch", "version.py"),
+            os.path.join(paths.ENV, "lib", "python*", "site-packages", "torch", "version.py")]
+    for p in (f for pat in pats for f in glob.glob(pat)):
+        try:
+            s = open(p, encoding="utf-8").read()
+        except OSError:
+            continue
+        v = re.search(r"^__version__\s*=\s*'([^']+)'", s, re.M)
+        c = re.search(r"^cuda\b[^=]*=\s*'([^']+)'", s, re.M)
+        return (v.group(1) if v else None), (c.group(1) if c else None)
+    return None, None
+
+
+def cpu_torch():
+    """有 N 卡、训练环境里却是 CPU 版 PyTorch 时返回那个版本号，否则 ""。
+    训练会退回 CPU（几个小时出不了一步），自然语言反推直接报「Torch not compiled with CUDA enabled」。"""
+    tv, tc = installed_torch()
+    return tv if tv and not tc and shutil.which("nvidia-smi") else ""
+
+
+def _torch_pin():
+    """装其它依赖时把 CUDA 版 PyTorch 钉住（pip -c）。不钉的话，某个包要求更新的 torch，pip 就会去 PyPI
+    拿最新版来「满足依赖」，而 PyPI 上的 Windows 版 torch 是 CPU 版，装完显卡就用不了了。"""
+    tv, tc = installed_torch()
+    if not (tv and tc):
+        return []
+    f = os.path.join(paths.ENV, "torch-constraints.txt")
+    with open(f, "w", encoding="utf-8") as fp:
+        fp.write(f"torch=={tv}\n")
+    return ["-c", f]
+
+
 def install_torch(job, force=False):
     if not force:
         d = _torch_ok(job)
@@ -402,22 +438,23 @@ def install(job, repair=False, reinstall_torch=False):
 
 def _deps(job, torch_ver, upgrade=False, p0=0.6):
     """引擎依赖 + 训练器自己的依赖（反推、加速组件）+ 环境检查。安装和更新共用。"""
+    pin = _torch_pin()
     job.set_progress(p0, "安装 sd-scripts 依赖")
-    _pip(job, ["-r", "requirements.txt"] + (["--upgrade"] if upgrade else []), cwd=paths.SD_SCRIPTS)
+    _pip(job, ["-r", "requirements.txt"] + (["--upgrade"] if upgrade else []) + pin, cwd=paths.SD_SCRIPTS)
     job.set_progress(p0 + (1 - p0) * 0.4, "安装 musubi-tuner")
-    _pip(job, ["-e", paths.MUSUBI])
+    _pip(job, ["-e", paths.MUSUBI] + pin)
     job.set_progress(p0 + (1 - p0) * 0.65, "安装反推和加速组件")
     try:
-        _pip(job, EXTRA_PKGS + [onnxruntime_spec()])
+        _pip(job, EXTRA_PKGS + [onnxruntime_spec()] + pin)
     except Exception as e:
         # flash-linear-attention 是 MOSS-Image 文本编码器的加速项，装不上只影响速度，不该挡住整个环境
         job.write(f"⚠ 加速组件没全装上（{e}），先装其余依赖")
-        _pip(job, [p for p in EXTRA_PKGS if not p.startswith("flash-linear-attention")] + [onnxruntime_spec()])
+        _pip(job, [p for p in EXTRA_PKGS if not p.startswith("flash-linear-attention")] + [onnxruntime_spec()] + pin)
     m = re.match(r"(\d+)\.(\d+)", torch_ver or "")
     if os.name == "nt" and m and int(m.group(1)) == 2 and int(m.group(2)) >= 6:
         tm = int(m.group(2)) - 4
         try:   # int8 ConvRot 量化的加速内核；装不上不影响其它功能
-            _pip(job, [f"triton-windows>=3.{tm},<3.{tm + 1}"])
+            _pip(job, [f"triton-windows>=3.{tm},<3.{tm + 1}"] + pin)
         except Exception as e:
             job.write(f"triton 没装上（不影响训练，只是 int8 量化会慢一些）：{e}")
     job.set_progress(p0 + (1 - p0) * 0.9, "检查环境")
@@ -474,6 +511,9 @@ def needs_sync():
         st = {}
     if st.get("deps") != deps_fingerprint():
         why.append("依赖清单有变化" if st.get("deps") else "还没有记录过依赖版本")
+    tv = cpu_torch()
+    if tv:
+        why.append(f"PyTorch {tv} 是 CPU 版，用不了显卡")
     return "；".join(why)
 
 
@@ -486,13 +526,14 @@ def sync(job):
     if not paths.env_python():
         job.write("训练环境还没安装，跳过依赖同步")
         return status()
-    tv = None
-    try:
-        tv = json.load(open(STAMP, encoding="utf-8")).get("torch")
-    except Exception:
-        pass
+    extra = None
+    if cpu_torch():
+        job.set_progress(0.1, "训练环境里是 CPU 版 PyTorch，重装 CUDA 版（约 2.7 GB）")
+        tinfo = install_torch(job, force=True)
+        extra = {"torch": tinfo.get("torch"), "cuda": tinfo.get("cuda")}
+    tv = installed_torch()[0]
     _deps(job, tv, p0=0.3)
-    _write_stamp()
+    _write_stamp(extra)
     job.set_progress(1, "训练引擎和环境已同步")
     return status()
 
@@ -512,4 +553,5 @@ def pin_current():
 
 
 def pip_install(job, pkg):
-    _pip(job, pkg.split())
+    """报错修复里的「安装 xxx 后重试」。同样钉住 PyTorch：xformers / bitsandbytes 这类包会顺手把 torch 换成 CPU 版。"""
+    _pip(job, pkg.split() + _torch_pin())

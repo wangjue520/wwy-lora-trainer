@@ -241,7 +241,10 @@ RULES = [
      "训练集里没有可用的图片", "训练集路径不对，或者图片格式不受支持。", None),
     ("no_module", r"ModuleNotFoundError: No module named '([\w\.]+)'",
      "训练环境缺少组件", "训练环境里缺少 Python 包「{0}」。", "no_module"),
-    ("no_cuda", r"Torch not compiled with CUDA enabled|CUDA driver version is insufficient|no kernel image is available|CUDA error: no CUDA-capable device|NVIDIA driver on your system is too old|driver version .* too old",
+    ("cpu_torch", r"Torch not compiled with CUDA enabled",
+     "训练环境装的是 CPU 版 PyTorch", "训练环境里的 PyTorch 是 CPU 版，用不了显卡（和驱动无关）。"
+     "多半是装依赖时 pip 把 CUDA 版换成了 PyPI 上的 CPU 版；重启训练器会自动重装，或点下面的按钮。", "no_cuda"),
+    ("no_cuda", r"CUDA driver version is insufficient|no kernel image is available|CUDA error: no CUDA-capable device|NVIDIA driver on your system is too old|driver version .* too old",
      "PyTorch 和显卡 / 驱动不匹配", "装的 PyTorch 不支持这张显卡，或者显卡驱动太旧。", "no_cuda"),
     ("bnb", r"bitsandbytes.*(error|Error)|libbitsandbytes|CUDA Setup failed",
      "8bit 优化器组件加载失败", "bitsandbytes 没装好或和显卡不兼容。", "bnb"),
