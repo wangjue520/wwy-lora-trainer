@@ -54,11 +54,32 @@ if os.environ.get("LORA_PAUSE_FILE") or os.environ.get("LORA_VRAM_LIMIT_GB"):
                 want = float(self.reduce(t, "sum").item()) > 0
             return want
 
+        def _swap_in(tmp):
+            """存完整的新进度换掉上次冻结的进度；换的时候出错把旧的放回去。"""
+            import shutil
+            old = state_dir + ".old"
+            shutil.rmtree(old, ignore_errors=True)
+            if os.path.isdir(state_dir):
+                os.replace(state_dir, old)
+            try:
+                os.replace(tmp, state_dir)
+            except OSError:
+                if os.path.isdir(old) and not os.path.isdir(state_dir):
+                    os.replace(old, state_dir)
+                raise
+            shutil.rmtree(old, ignore_errors=True)
+
         def _pause(self):
-            self.wait_for_everyone()
-            self.save_state(state_dir)
+            # 先存到旁边的文件夹，存完整了再换进来：存到一半报错退出时，上次冻结的进度还能用
+            tmp = state_dir + ".saving"
             if self.is_main_process:
-                p, step = os.path.join(state_dir, "train_state.json"), "?"
+                import shutil
+                shutil.rmtree(tmp, ignore_errors=True)
+            self.wait_for_everyone()
+            self.save_state(tmp)
+            self.wait_for_everyone()
+            if self.is_main_process:
+                p, step = os.path.join(tmp, "train_state.json"), "?"
                 try:   # sd-scripts 按「保存发生在步数 +1 之前」写的 current_step+1，这里是在步与步之间，要减回去；再换算成真实总步数
                     d = json.load(open(p, encoding="utf-8"))
                     d["current_step"] = int(d.get("current_step") or 0) - 1 + offset
@@ -66,6 +87,7 @@ if os.environ.get("LORA_PAUSE_FILE") or os.environ.get("LORA_VRAM_LIMIT_GB"):
                     step = d["current_step"]
                 except Exception:
                     pass
+                _swap_in(tmp)
                 print(f"LORA_PAUSED step={step} pid={os.getpid()}", flush=True)
             self.wait_for_everyone()
             try:
