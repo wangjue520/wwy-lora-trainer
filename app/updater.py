@@ -279,7 +279,12 @@ def check(force=False):
                 commits = _remote(*gh, deadline=time.time() + 40)
                 remote = res["remote"] = commits[0]["sha"]
                 shas = [x["sha"] for x in commits]
-                if not local or remote == local:
+                if not local:
+                    # 不知道本地是哪个提交（commit.txt 没被填上，比如别人转发的整合包）：以前当成「已是最新」，
+                    # 结果永远提示不了更新。现在按有新版本提示，更新一次后 commit.txt 会写上提交号，之后就准了
+                    res["new"] = res["unknown_local"] = True
+                    res["commits"] = [x for x in commits if x["msg"]][:10]
+                elif remote == local:
                     pass
                 elif local in shas:
                     res["new"], res["count"] = True, shas.index(local)

@@ -55,7 +55,7 @@
       App.state.env = env; App.state.network = boot.network;
       const up = App.state.update;
       $('#st-versions').innerHTML = `<tr><td>训练器</td><td>V${esc(boot.version.version || '0.1.0')}${up && up.local ? ' · ' + esc(up.local.slice(0, 7)) : ''} ${
-        !up ? '' : up.new ? `<span class="badge warn">有新版本${up.count ? ` · ${up.count} 项更新` : ''}</span>` : up.error ? `<span class="badge">${esc(up.error)}</span>` : up.local ? '<span class="badge ok">已是最新</span>' : ''
+        !up ? '' : up.unknown_local ? '<span class="badge warn">认不出本地版本，建议更新一次</span>' : up.new ? `<span class="badge warn">有新版本${up.count ? ` · ${up.count} 项更新` : ''}</span>` : up.error ? `<span class="badge">${esc(up.error)}</span>` : up.local ? '<span class="badge ok">已是最新</span>' : ''
         } <button class="btn btn-sm" id="st-checkup">检查更新</button></td></tr>` +
         Object.entries(env.engines).map(([k, e]) => `<tr><td>${esc(k)}</td><td>${e.installed ? esc(e.commit || '已下载')
           + (e.pinned ? (e.match ? ' <span class="badge ok">和训练器匹配</span>' : ` <span class="badge warn">训练器要求 ${esc(e.pinned.slice(0, 7))}</span>`) : '')
