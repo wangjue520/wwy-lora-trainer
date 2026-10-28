@@ -425,6 +425,10 @@
           try {
             const r = await api('fix.apply', { task: tid, fix: fx.id, data });
             this.toast(r.message || '已执行', r.ok ? 'ok' : 'bad');
+            // 修复改了任务参数（例如分辨率 1024 → 768）：当前训练配置是同一个底模的话也跟着改
+            if (r.ok && r.params && r.model_type === this.draft.model_type && this.cur()) {
+              Object.assign(this.cur().params, r.params); this.saveDraft(true); this.emit('params');
+            }
             if (r.ok) closeAll();
           } catch (e) { this.toast(e.message, 'bad'); ev.target.disabled = false; }
         };

@@ -58,6 +58,10 @@ def apply(tid, fid, data=None):
             tasks.requeue(tid, patch, mpatch)
             tasks.start_queue()
 
+    def changed(vals):
+        # 改了哪些参数也返回给前端：同一个底模的「当前训练配置」跟着改，不然那里还显示旧值（例如分辨率还是 1024），下次加入队列又用回旧值
+        return {"params": vals, "model_type": t["model_type"]} if t and vals else {}
+
     if fid == "ignore":
         if t:
             ign = set(t.get("ignored_issues") or [])
@@ -86,7 +90,7 @@ def apply(tid, fid, data=None):
         if not vals:
             return {"ok": False, "message": "已经是最省显存的设置了，只能换显存更大的显卡或降低分辨率 / dim。"}
         requeue(vals)
-        return {"ok": True, "message": "已调整：" + ", ".join(f"{k}={v}" for k, v in vals.items())}
+        return {"ok": True, "message": "已调整：" + ", ".join(f"{k}={v}" for k, v in vals.items()), **changed(vals)}
 
     if fid == "sync_sample_prompts":
         if t:
@@ -98,8 +102,9 @@ def apply(tid, fid, data=None):
         return {"ok": True, "message": "测试提示词已改好，继续训练"}
 
     if fid == "set_params":
-        requeue(data.get("values") or {})
-        return {"ok": True, "message": "参数已修改，重新开始"}
+        vals = data.get("values") or {}
+        requeue(vals)
+        return {"ok": True, "message": "参数已修改，重新开始", **changed(vals)}
 
     if fid == "workers_zero":
         patch = {"num_workers": 0}
@@ -107,7 +112,7 @@ def apply(tid, fid, data=None):
             p = t["params"]
             patch["blocks_to_swap"] = max(int(p.get("blocks_to_swap") or 0), 8)
         requeue(patch)
-        return {"ok": True, "message": "已减少内存占用，重新开始"}
+        return {"ok": True, "message": "已减少内存占用，重新开始", **changed(patch)}
 
     if fid == "switch_cn":
         settings.save({"network": "cn"})
