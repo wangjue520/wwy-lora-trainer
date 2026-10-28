@@ -486,6 +486,16 @@ def _tag_start(a):
     return tagging.start(a["cfg"]).id
 
 
+@api("tag.resume_info")
+def _tag_resume_info(_):
+    return tagging.resume_info()
+
+
+@api("tag.resume")
+def _tag_resume(_):
+    return tagging.resume().id
+
+
 @api("tag.test_api")
 def _tag_test(a):
     return tagging.test_api(a["api"])
