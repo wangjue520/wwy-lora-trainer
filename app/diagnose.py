@@ -225,6 +225,11 @@ _MODULE_PKG = {"cv2": "opencv-python==4.10.0.84", "PIL": "pillow", "bitsandbytes
 
 RULES = [
     # (code, 正则, 标题, 原因, 修复生成函数)
+    # PyTorch 自己的显存分配失败会写 "CUDA out of memory. Tried to allocate ..."；只有 "CUDA error: out of memory"
+    # 是驱动层面申请失败，内存小的电脑上多半是内存（锁页内存）被占满，不一定是显存。
+    ("host_oom", r"^(?![\s\S]*Tried to allocate)[\s\S]*CUDA error: out of memory",
+     "显存或内存不足", "显卡驱动申请内存失败。这不一定是显存不够：内存（RAM）快被占满时，"
+     "把模型搬进显卡也会报这个错（调大虚拟内存帮不上忙，驱动要的是实打实的物理内存）。", "host_oom"),
     ("oom", r"CUDA out of memory|OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED|cudaErrorMemoryAllocation|out of memory",
      "显存不足", "训练需要的显存超过了显卡剩余的显存。", "oom"),
     ("pagefile", r"页面文件太小|paging file is too small|WinError 1455",
@@ -328,6 +333,9 @@ def _fixes_for(kind, m, task, spec, p, tail):
             res.append(fix("kill_gpu", "结束其他占用显存的程序后重试", "强制结束下列进程，未保存的内容会丢失。", danger=True, procs=procs))
         res.append(fix("lower_vram", "调低显存占用后重试", _lower_vram_desc(task, spec)))
         return res
+    if kind == "host_oom":
+        res = [fix("workers_zero", "减少内存占用后重试", "数据加载线程改为 0。也建议先关掉浏览器、游戏等占内存的程序。")]
+        return res + _fixes_for("oom", m, task, spec, p, tail)
     if kind == "pagefile":
         return [fix("workers_zero", "数据加载线程改为 0 后重试", "减少同时占用的内存。如果仍然失败，需要手动把 Windows 虚拟内存调大到 32 GB 以上（系统设置 → 高级系统设置 → 性能 → 虚拟内存）。")]
     if kind == "ram":

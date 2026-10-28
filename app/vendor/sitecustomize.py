@@ -147,6 +147,38 @@ if os.environ.get("LORA_PAUSE_FILE") or os.environ.get("LORA_VRAM_LIMIT_GB"):
     _sys2.meta_path.insert(0, _PauseFinder())
 
 
+# ---------------- 分层卸载用的锁页内存：限量 ----------------
+# 锁页内存不能换出到虚拟内存，Windows 上最多只能锁大约一半物理内存，而且 PyTorch 按 2 的幂向上取整分配。
+# 15 GB 内存的电脑把 MOSS 文本编码器 9 GB 的权重全锁的话会锁到上限、把可用内存挤到 0.3 GB，
+# 随后把 VAE 搬进显存时驱动申请不到内存，报 "CUDA error: out of memory"（看起来像显存不足，其实是内存）。
+# 所以只锁一部分：不超过物理内存的 1/4，并且至少留 6 GB 可用内存；其余的层用普通内存（搬进显存稍慢）。
+class _PinBudget:
+    def __init__(self):
+        try:
+            import psutil
+            vm = psutil.virtual_memory()
+            self.left = max(0, min(vm.total // 4, vm.available - (6 << 30)))
+        except Exception:
+            self.left = 0
+        self.used = 0
+
+    def pin(self, t):
+        if t.device.type != "cpu":
+            t = t.cpu()
+        size = t.numel() * t.element_size()
+        alloc = 1 << max(0, size - 1).bit_length()   # 实际占用按 2 的幂算
+        if alloc > self.left:
+            return t
+        try:
+            t = t.pin_memory()
+        except Exception:
+            self.left = 0   # 锁不动了，后面的都不再尝试
+            return t
+        self.left -= alloc
+        self.used += alloc
+        return t
+
+
 # ---------------- Krea 2 文本编码器分层卸载（8 GB 显卡用） ----------------
 # Qwen3-VL-4B 文本编码器 bf16 要约 9 GB 显存，8 GB 卡放不下；放 CPU 上跑一条标签要一分多钟。
 # 有 LORA_TE_OFFLOAD 时：权重留在内存（锁页），36 个解码层用到哪层才搬进显存、算完切回内存那份；
@@ -169,10 +201,11 @@ if os.environ.get("LORA_TE_OFFLOAD") or os.environ.get("LORA_TRAINER"):
             m.to(dev)
         model.lm_head.to(dev)   # 和词表嵌入共用权重
 
+        pins = _PinBudget()
         for layer in lm.layers:
             ps = list(layer.parameters()) + list(layer.buffers())
             for p in ps:
-                p._lora_cpu = p.data.pin_memory()
+                p._lora_cpu = pins.pin(p.data)
                 p.data = p._lora_cpu
 
             def pre(mod, args, ps=ps):
@@ -186,7 +219,7 @@ if os.environ.get("LORA_TE_OFFLOAD") or os.environ.get("LORA_TRAINER"):
 
             layer.register_forward_pre_hook(pre)
             layer.register_forward_hook(post)
-        print("[lora] 文本编码器分层卸载：权重在内存，逐层搬进显存计算（8 GB 显卡模式）", flush=True)
+        print(f"[lora] 文本编码器分层卸载：权重在内存，逐层搬进显存计算（8 GB 显卡模式，锁页 {pins.used / 2**30:.1f} GB）", flush=True)
         return model
 
     class _TEOffloadFinder:
@@ -340,14 +373,11 @@ if os.environ.get("LORA_TE_OFFLOAD") or os.environ.get("LORA_TRAINER"):
         model._lora_offload = True
         layers = model.layers
         state = {"dev": None}
+        pins = _PinBudget()
         for layer in layers:
             ps = list(layer.parameters()) + list(layer.buffers())
             for p in ps:
-                cpu = p.data if p.data.device.type == "cpu" else p.data.cpu()
-                try:
-                    cpu = cpu.pin_memory()
-                except Exception:
-                    pass
+                cpu = pins.pin(p.data)
                 p._lora_cpu = cpu
                 p.data = cpu
 
@@ -378,7 +408,7 @@ if os.environ.get("LORA_TE_OFFLOAD") or os.environ.get("LORA_TRAINER"):
             state["dev"] = None
             return orig_to(*args, **kwargs)
         model.to = to
-        print("[lora] MOSS 文本编码器分层卸载：解码层留在内存，逐层搬进显存计算（8 GB 显卡模式）", flush=True)
+        print(f"[lora] MOSS 文本编码器分层卸载：解码层留在内存，逐层搬进显存计算（8 GB 显卡模式，锁页 {pins.used / 2**30:.1f} GB）", flush=True)
         return model
 
     class _MossTEFinder:
