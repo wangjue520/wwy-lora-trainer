@@ -165,6 +165,11 @@ select { padding-right: 6px; cursor: pointer; }
 .field.changed > label::before { content: ""; width: 3px; height: 13px; background: var(--yel); outline: 1px solid var(--ink); flex: none; }
 :root[data-theme="dark"] .field.changed > label::before { outline: 0; }
 .fields.cols5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* 训练集位置、保存名称、保存位置：标签做成黄底标签、输入框描黄边（导入别人的配置后最容易忘改的几项） */
+.field.key > label > span:first-child, .key-chip { background: var(--yel); color: var(--ink); padding: 1px 8px; font-weight: 700; }
+.field.key > label::before { display: none; }
+.field.key input[type=text], input.key-input { border-color: var(--ink); box-shadow: 0 0 0 2px var(--yel); }
+:root[data-theme="dark"] .field.key input[type=text], :root[data-theme="dark"] input.key-input { border-color: var(--yel); box-shadow: none; }
 @media (max-width: 1350px) { .fields.cols5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .fields.cols5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
