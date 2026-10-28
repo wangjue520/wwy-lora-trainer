@@ -45,6 +45,14 @@
         App.emit('model_type'); P.show(); App.toast('已读取存档：' + n, 'ok');
       };
       $('#preset-import').onclick = () => P.importDialog();
+      $('#preset-export').onclick = async () => {
+        if (!App.spec()) { App.toast('先在「模型设置」选择底模', 'bad'); App.go('model'); return; }
+        let r; try { r = await api('config.export', { draft: App.taskDraft() }); } catch (e) { App.toast(e.message, 'bad'); return; }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([r.text], { type: 'application/toml' })); a.download = r.filename; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        App.toast(`已导出 ${r.filename}`, 'ok');
+      };
       $('#preset-del').onclick = async () => {
         const n = $('#preset-select').value; if (!n) return;
         if (!(await App.confirm('删除存档', `删除存档「${esc(n)}」？`, '删除', true))) return;
@@ -270,6 +278,8 @@
         if (['failed', 'stopped', 'done', 'blocked', 'paused'].includes(t.status)) btn('↻', '从头重新训练', () => api('queue.requeue', { id: t.id, start: true }).then(() => { App.toast('已重新加入队列'); App.tick(); }));
         if (['done', 'stopped', 'paused', 'failed'].includes(t.status)) btn('🚀', '把训练好的 LoRA（连同示例图、触发词）送到 WWY 启动器', () => App.sendToLauncher(t.id));
         btn('⇪', '把这个任务的设置载入为当前配置', () => P.loadTask(t));
+        if (t.status === 'done' && (t.outputs || []).length && spec && spec.params.some(f => f.key === 'network_weights'))
+          btn('⤳', '在这个任务练好的 LoRA 基础上继续训练', () => P.continueFrom(t));
         btn('📁', '打开输出文件夹', () => api('fs.mkdir', { path: t.output_dir }).then(() => api('fs.open', { path: t.output_dir })));
         if (!['running', 'checking'].includes(t.status)) btn('✕', '删除任务', async () => {
           if (await App.confirm('删除任务', `从队列删除「${esc(t.name)}」？已经训练好的 LoRA 文件不会被删除。`, '删除', true)) { await api('queue.remove', { id: t.id }); App.tick(); }
@@ -300,6 +310,20 @@
         c.models = Object.assign({}, t.models); c.params = Object.assign({}, t.params); c.sample = JSON.parse(JSON.stringify(t.sample || c.sample));
         App.saveDraft(true); App.emit('model_type'); P.renderSummary(); App.toast('已载入，可以修改后再加入队列', 'ok');
       });
+    },
+    // 载入这个任务的设置，「从已有 LoRA 继续训练」填它最后存下的 LoRA，保存名称另起一个
+    async continueFrom(t) {
+      const name = t.params.output_name || 'lora';
+      const outs = t.outputs.slice().sort((a, b) => a.mtime - b.mtime);
+      const w = outs.find(o => o.name === name + '.safetensors') || outs[outs.length - 1];
+      if (!(await App.confirm('继续训练', `载入任务「${esc(t.name)}」的模型和参数，在 <b>${esc(w.name)}</b> 的基础上接着练，保存名称改成「${esc(name)}_cont」。`, '载入'))) return;
+      App.draft.model_type = t.model_type;
+      const c = App.cur();
+      c.models = Object.assign({}, t.models);
+      c.params = Object.assign({}, t.params, { network_weights: w.path, dim_from_weights: true, output_name: name + '_cont' });
+      c.sample = JSON.parse(JSON.stringify(t.sample || c.sample));
+      App.saveDraft(true); App.emit('model_type'); P.renderSummary();
+      App.toast('已载入，确认参数后再开始训练', 'ok'); App.go('params');
     },
     renderDetail() {
       const t = P.selTask();

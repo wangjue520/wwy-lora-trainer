@@ -170,10 +170,32 @@ def add(draft, name=None, start=False):
         raise ValueError("请先在「模型设置」选择底模类型")
     p = dict(spec.defaults())
     p.update(draft.get("params") or {})
+    check_weights(spec, p)
     old = (p.get("output_name") or "lora").strip()
     with _lock:   # 查重和加入队列一起做：连点两次「加入队列」也不会撞名
         p["output_name"] = unique_name(draft, old)
         return _add_locked(draft, spec, p, name if name and name != old else None, old, start)
+
+
+def check_weights(spec, p):
+    """「从已有 LoRA 继续训练」选的文件：要存在、是这个底模的 LoRA、是训练引擎能读的格式，否则训练开始后才报错。"""
+    w = (p.get("network_weights") or "").strip()
+    if not w:
+        return
+    import safetensors_meta
+    if not os.path.isfile(w):
+        raise ValueError(f"「从已有 LoRA 继续训练」选的文件不存在：{w}")
+    info = safetensors_meta.lora_info(w)
+    if info.get("error"):
+        raise ValueError(f"「从已有 LoRA 继续训练」选的文件不能用：{info['error']}")
+    fam = spec.family or spec.id
+    if info["base"] and info["base"] != fam:
+        other = models.get(info["base"])
+        raise ValueError(f"「从已有 LoRA 继续训练」选的是 {other.label if other else info['base'].lstrip('!')} 的 LoRA，"
+                         f"不能接着练 {spec.label}")
+    if info["comfy"]:
+        raise ValueError("「从已有 LoRA 继续训练」选的是 ComfyUI / diffusers 格式的 LoRA，训练引擎读不了；"
+                         "请选训练器原始输出的那个文件（不带 _comfy）")
 
 
 def _add_locked(draft, spec, p, name, old, start):

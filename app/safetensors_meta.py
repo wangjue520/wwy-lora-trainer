@@ -144,3 +144,76 @@ def classify(path):
     if meta.get("modelspec.architecture"):
         info["note"] = meta.get("modelspec.architecture")
     return info
+
+
+# ---------------- LoRA 文件：继续训练前看清它是给哪个底模的、dim / alpha 多少 ----------------
+_LORA_BASE_META = [   # (元数据里出现的字样, 底模 family；! 开头是本训练器不支持的底模)
+    ("anima", "anima"), ("krea", "krea2"), ("moss", "moss"), ("stable-diffusion-xl", "sdxl"), ("sdxl", "sdxl"),
+    ("stable-diffusion-v1", "!SD 1.5"), ("sd_v1", "!SD 1.5"), ("flux", "!FLUX"),
+]
+_LORA_BASE_KEYS = [   # 没有元数据时按层名判断（sd-scripts / musubi-tuner 的命名）
+    (r"lora_unet_input_blocks_|lora_unet_output_blocks_|lora_te1_|lora_te2_", "sdxl"),
+    (r"lora_unet_down_blocks_|lora_unet_up_blocks_", "!SD 1.5"),
+    (r"lora_unet_blocks_\d+_(self|cross)_attn_", "anima"),
+    (r"lora_unet_layers_\d+_proj_", "moss"),
+    (r"blocks[._]\d+[._]attn[._]w[qkv]", "krea2"),
+]
+
+
+def _scalar(path, h, n_head, key):
+    """读一个标量张量（alpha）的值。"""
+    v = h.get(key) or {}
+    s, e = (v.get("data_offsets") or [0, 0])[:2]
+    try:
+        with open(path, "rb") as f:
+            f.seek(8 + n_head + s)
+            raw = f.read(e - s)
+    except OSError:
+        return None
+    dt = v.get("dtype")
+    if dt == "BF16" and len(raw) == 2:
+        return struct.unpack("<f", b"\0\0" + raw)[0]
+    if dt == "F16" and len(raw) == 2:
+        return struct.unpack("<e", raw)[0]
+    if dt == "F32" and len(raw) == 4:
+        return struct.unpack("<f", raw)[0]
+    return None
+
+
+def lora_info(path):
+    """{base, dim, alpha, network_type, conv_dim, comfy, epoch, steps, error}。base 是底模 family（认不出为空）。"""
+    import re
+    h, err = read_header(path)
+    if err:
+        return {"error": err}
+    with open(path, "rb") as f:
+        n_head = struct.unpack("<Q", f.read(8))[0]
+    meta = h.pop("__metadata__", None) or {}
+    keys = list(h)
+    if not any(".lora_down." in k or ".lora_A." in k or ".hada_w1" in k or ".lokr_w1" in k for k in keys):
+        return {"error": "这不是 LoRA 文件"}
+    info = {"error": None, "network_type": "lokr" if any(".lokr_w" in k for k in keys) else "loha" if any(".hada_w1" in k for k in keys) else "lora",
+            "comfy": not any(".lora_down." in k or ".hada_w1" in k or ".lokr_w1" in k for k in keys),
+            "epoch": meta.get("ss_epoch"), "steps": meta.get("ss_steps"), "base": ""}
+    sig = " ".join(str(meta.get(k) or "") for k in ("ss_base_model_version", "modelspec.architecture", "ss_network_module")).lower()
+    info["base"] = next((b for s, b in _LORA_BASE_META if s in sig), "")
+    if not info["base"]:
+        sample = " ".join(keys[:200])
+        info["base"] = next((b for r, b in _LORA_BASE_KEYS if re.search(r, sample)), "")
+    downs = [k for k in keys if k.endswith((".lora_down.weight", ".lora_A.weight"))]
+    try:
+        info["dim"] = int(float(meta["ss_network_dim"]))
+    except (KeyError, ValueError, TypeError):
+        info["dim"] = max((h[k]["shape"][0] for k in downs), default=None)
+    try:
+        info["alpha"] = float(meta["ss_network_alpha"])
+    except (KeyError, ValueError, TypeError):
+        a = next((k for k in keys if k.endswith(".alpha")), None)
+        info["alpha"] = _scalar(path, h, n_head, a) if a else None
+    if info["alpha"] is not None:
+        info["alpha"] = round(info["alpha"], 4)
+    try:
+        info["conv_dim"] = int(json.loads(meta.get("ss_network_args") or "{}").get("conv_dim") or 0)
+    except (ValueError, TypeError, AttributeError):
+        info["conv_dim"] = 0
+    return info

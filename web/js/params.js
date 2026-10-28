@@ -16,6 +16,8 @@
 
   // 这几项在「训练长度」卡的总步数栏里直接改，下面的表单不再重复
   const CALC_KEYS = ['repeats', 'epochs', 'max_train_steps', 'batch_size', 'steps_mode', 'use_folder_repeats', 'gradient_checkpointing'];
+  // 训练集位置和保存名称：黄底标签 + 黄边输入框
+  const KEY_FIELDS = ['dataset_dir', 'output_name'];
 
   // 开关类参数：紧凑的勾选块，排成一行放在输入框网格下面
   function switchEl(f, p, defaults) {
@@ -35,7 +37,7 @@
     const v = p[f.key];
     const wide = f.type === 'textarea';                     // 多行文本占满一行
     const span2 = f.type === 'dir' || f.type === 'file';    // 路径框占两格
-    const wrap = h(`<div class="field ${wide ? 'wide' : ''} ${span2 ? 'span2' : ''}" data-key="${f.key}"><label><span>${esc(f.label)}</span>${f.help ? `<i class="q" data-tip="${esc(f.help)}">?</i>` : ''}</label></div>`);
+    const wrap = h(`<div class="field ${wide ? 'wide' : ''} ${span2 ? 'span2' : ''} ${KEY_FIELDS.includes(f.key) ? 'key' : ''}" data-key="${f.key}"><label><span>${esc(f.label)}</span>${f.help ? `<i class="q" data-tip="${esc(f.help)}">?</i>` : ''}</label></div>`);
     let input;
     const set = val => {
       App.setParam(f.key, val);
@@ -63,6 +65,14 @@
       };
       const ob = input.querySelector('[data-open]'); if (ob) ob.onclick = () => t.value && api('fs.open', { path: t.value });
       wrap.querySelector('label').after(input);
+      if (f.key === 'network_weights') {
+        // 选好 LoRA 后读文件：是不是这个底模的、dim / alpha 多少，自动对齐（dim、alpha、网络类型对不上时训练会报错）
+        const hint = h('<div class="hint"></div>'); wrap.append(hint);
+        const t0 = t.onchange; t.onchange = () => { t0(); P.weightsInfo(t.value.trim(), hint, true); };
+        const b0 = input.querySelector('.btn').onclick;
+        input.querySelector('.btn').onclick = async () => { const old = t.value; await b0(); if (t.value !== old) P.weightsInfo(t.value, hint, true); };
+        if (v) P.weightsInfo(v, hint, false);
+      }
     } else if (f.type === 'textarea') {
       input = h('<textarea rows="2"></textarea>'); input.value = v || '';
       input.onchange = () => set(input.value);
@@ -176,6 +186,26 @@
         };
         el.append(b);
       });
+    },
+    async weightsInfo(path, hint, apply) {
+      hint.className = 'hint'; hint.textContent = '';
+      if (!path) return;
+      let r; try { r = await api('lora.info', { path }); } catch (e) { hint.className = 'hint bad'; hint.textContent = e.message; return; }
+      const spec = App.spec(), other = r.base && r.base !== spec.family && (App.spec(r.base) || { label: r.base.replace(/^!/, '') });
+      const bad = r.error || (other && `这是 ${other.label} 的 LoRA，不能接着练 ${spec.label}`)
+        || (r.comfy && 'ComfyUI / diffusers 格式，训练引擎读不了；请选训练器原始输出的那个文件（不带 _comfy）');
+      if (bad) { hint.className = 'hint bad'; hint.textContent = bad; return; }
+      hint.textContent = `dim ${r.dim} / alpha ${r.alpha}` + (r.network_type !== 'lora' ? ` · ${r.network_type}` : '') + (r.epoch ? ` · 练过 ${r.epoch} 轮` : '') + (r.steps ? ` ${r.steps} 步` : '');
+      if (!apply) return;
+      const has = k => spec.params.some(f => f.key === k), set = {};
+      if (r.dim) set.network_dim = r.dim;
+      if (r.alpha != null) set.network_alpha = r.alpha;
+      if (has('network_type')) set.network_type = r.network_type;
+      if (has('conv_dim')) set.conv_dim = r.conv_dim || 0;
+      if (has('dim_from_weights')) set.dim_from_weights = true;
+      Object.entries(set).forEach(([k, v]) => App.setParam(k, v));
+      App.toast(`已按这个 LoRA 设置 dim ${r.dim} / alpha ${r.alpha}`, 'ok');
+      P.render(); P.scheduleStats();
     },
     scheduleStats(ms = 300) { clearTimeout(statsTimer); statsTimer = setTimeout(P.stats, ms); },
     async stats() {

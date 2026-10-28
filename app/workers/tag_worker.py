@@ -324,9 +324,14 @@ class VLM:
             if i is not None:
                 ids.append(i)
         self.eos = sorted(set(ids)) or None
+        # 成批生成：短的提示词在左边补齐，生成的新字才都接在最右边
+        tok.padding_side = "left"
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        self.pad = tok.pad_token_id
+        self.bs = pick_batch(cfg)
 
-    def __call__(self, img, tags=None):
-        torch = self.torch
+    def prompt(self, tags=None):
         cfg = self.cfg
         if self.key == "toriigate":
             system = cu.TORII_SYSTEM
@@ -342,7 +347,10 @@ class VLM:
         if self.key == "joycaption":
             # JoyCaption 的对话模板会自动插入图片占位符（官方用法）
             msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        text = self.proc.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        return self.proc.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+
+    @staticmethod
+    def prep(img):
         img = img.convert("RGB")
         # 大图先缩到约 100 万像素：Qwen-VL 系列按原图大小切视觉 token，D 站 4000×6000 的图会变成几万个 token，
         # 显存爆了以后 Windows 驱动会悄悄借用内存（共享显存），结果是吃掉几十 GB 内存、每张图要几分钟。
@@ -350,20 +358,46 @@ class VLM:
             from PIL import Image
             s = (MAX_PIXELS / (img.width * img.height)) ** 0.5
             img = img.resize((max(28, int(img.width * s)), max(28, int(img.height * s))), Image.LANCZOS)
-        inputs = self.proc(text=[text], images=[img], return_tensors="pt").to(self.model.device)
+        return img
+
+    def batch(self, imgs, tags_list):
+        """几张图一起生成。一次只生成一张时，每个字都要 Python 给显卡发几百个小指令，CPU 一个核跑满、显卡在等；
+        一起生成时指令数不变、每个指令干几张图的活，显卡才吃得满。"""
+        torch = self.torch
+        cfg = self.cfg
+        texts = [self.prompt(t) for t in tags_list]
+        inputs = self.proc(text=texts, images=list(imgs), return_tensors="pt", padding=True).to(self.model.device)
         if "pixel_values" in inputs:
             inputs["pixel_values"] = inputs["pixel_values"].to(torch.bfloat16)
-        with torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=int(cfg.get("max_tokens") or 512),
-                                      do_sample=float(cfg.get("temperature") or 0) > 0,
-                                      temperature=float(cfg.get("temperature") or 0.6) or None, top_p=0.9,
-                                      repetition_penalty=1.05, eos_token_id=self.eos)
-        res = self.proc.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
-        del inputs, out
-        torch.cuda.empty_cache()   # 每张图之后还回显存，避免越用越多
-        if "</think>" in res:
-            res = res.split("</think>", 1)[1]
-        return res.strip()
+        try:
+            with torch.no_grad():
+                out = self.model.generate(**inputs, max_new_tokens=int(cfg.get("max_tokens") or 512),
+                                          do_sample=float(cfg.get("temperature") or 0) > 0,
+                                          temperature=float(cfg.get("temperature") or 0.6) or None, top_p=0.9,
+                                          repetition_penalty=1.05, eos_token_id=self.eos, pad_token_id=self.pad)
+            res = self.proc.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        finally:
+            del inputs
+            out = None
+            torch.cuda.empty_cache()   # 每批之后还回显存，避免越用越多
+        return [(r.split("</think>", 1)[1] if "</think>" in r else r).strip() for r in res]
+
+    def __call__(self, img, tags=None):
+        return self.batch([self.prep(img)], [tags])[0]
+
+
+def pick_batch(cfg):
+    """一次生成几张：设置了就用设置的（LORA_TAG_BATCH 环境变量优先，测试用），否则按模型加载后剩的显存估，最多 8 张。
+    每多一张大约多占 1 GB（看图的视觉部分最占）；估多了也不要紧，显存不足时会自动减半重来。"""
+    v = os.environ.get("LORA_TAG_BATCH") or cfg.get("batch")
+    if v:
+        bs = max(1, int(v))
+        log(f"成批生成：一次 {bs} 张（手动设置）")
+        return bs
+    free = vram_free_gb()
+    bs = max(1, min(8, int(free - 1.5)))
+    log(f"成批生成：模型加载后还剩 {free:.1f} GB 显存 → 一次 {bs} 张")
+    return bs
 
 
 def main():
@@ -379,29 +413,97 @@ def main():
     wd = WD14(wcfg, models_dir) if mode in ("wd14", "hybrid") else None
     vlm = VLM(cfg.get("vlm") or {}, models_dir) if mode in ("vlm", "hybrid") else None
     n = len(files)
-    t0 = time.time()
-    done = 0
-    for i, f in enumerate(files):
+    keep = mode == "wd14" or (mode == "hybrid" and cfg.get("hybrid_keep_tags", True))
+    st = {"count": 0, "worked": 0, "done": 0, "t0": time.time()}
+
+    def report(f, **kw):
+        st["count"] += 1
+        if not kw.get("skipped"):
+            st["worked"] += 1
+        el = time.time() - st["t0"]
+        emit(i=st["count"], n=n, file=f, eta=el / max(1, st["worked"]) * (n - st["count"]), **kw)
+
+    def finish(it, text):
+        f, existing, tags = it[0], it[1], it[3]
         try:
-            existing = cu.read_caption(f, ext)
-            if out.get("existing") == "skip" and (existing or "").strip():
-                emit(i=i + 1, n=n, file=f, skipped=True)
-                continue
-            img = Image.open(f)
-            img.load()
-            tags = wd(img) if wd else None
-            text = vlm(img, tags) if vlm else None
-            keep_tags = tags if (mode == "wd14" or (mode == "hybrid" and cfg.get("hybrid_keep_tags", True))) else None
-            final = cu.compose(existing, keep_tags, text, out)
+            final = cu.compose(existing, tags if keep else None, text, out)
             if final is not None:
                 cu.write_caption(f, final, ext)
-            done += 1
-            el = time.time() - t0
-            emit(i=i + 1, n=n, file=f, caption=final, eta=el / (i + 1) * (n - i - 1))
+            st["done"] += 1
+            report(f, caption=final)
         except Exception as e:
-            log(f"[失败] {f}：{e}")
-            emit(i=i + 1, n=n, file=f, error=str(e))
-    emit(stage="done", done=done, n=n)
+            fail(f, e)
+
+    def fail(f, e):
+        log(f"[失败] {f}：{e}")
+        report(f, error=str(e))
+
+    def run(items):
+        """生成一批。显存不够就把以后每批的张数减半、这批拆开重来；一批里有张图出错就一张张单跑，找出是哪张。"""
+        if not items:
+            return
+        import torch
+        try:
+            texts = vlm.batch([x[2] for x in items], [x[3] for x in items])
+        except torch.cuda.OutOfMemoryError as e:
+            torch.cuda.empty_cache()
+            if len(items) == 1:
+                return fail(items[0][0], e)
+            vlm.bs = max(1, len(items) // 2)
+            log(f"⚠ 显存不够一次生成 {len(items)} 张，改成一次 {vlm.bs} 张")
+            for k in range(0, len(items), vlm.bs):
+                run(items[k:k + vlm.bs])
+            return
+        except Exception as e:
+            if len(items) == 1:
+                return fail(items[0][0], e)
+            log(f"⚠ 这一批出错（{e}），改成一张张生成")
+            for x in items:
+                run([x])
+            return
+        for it, text in zip(items, texts):
+            finish(it, text)
+
+    # 读图、缩图、WD14 放在另一个线程里提前做，显卡生成这一批时下一批已经准备好了
+    import queue
+    q = queue.Queue(maxsize=(vlm.bs if vlm else 1) * 2 + 2)
+
+    def produce():
+        for f in files:
+            try:
+                existing = cu.read_caption(f, ext)
+                if out.get("existing") == "skip" and (existing or "").strip():
+                    q.put(("skip", f))
+                    continue
+                img = Image.open(f)
+                img.load()
+                tags = wd(img) if wd else None
+                q.put(("ok", (f, existing, vlm.prep(img) if vlm else None, tags)))
+            except Exception as e:
+                q.put(("err", (f, e)))
+        q.put(None)
+
+    threading.Thread(target=produce, daemon=True).start()
+    pend = []
+    while True:
+        x = q.get()
+        if x is None:
+            break
+        kind, it = x
+        if kind == "skip":
+            report(it, skipped=True)
+        elif kind == "err":
+            fail(*it)
+        elif not vlm:
+            finish(it, None)
+        else:
+            pend.append(it)
+            if len(pend) >= vlm.bs:
+                run(pend)
+                pend = []
+    if vlm:
+        run(pend)
+    emit(stage="done", done=st["done"], n=n)
 
 
 if __name__ == "__main__":

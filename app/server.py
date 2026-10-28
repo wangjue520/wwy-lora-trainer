@@ -106,6 +106,12 @@ def _config_import(a):
     return cfgimport.parse(a.get("text") or "", a.get("name") or "", a.get("target") or "", a.get("current") or "")
 
 
+@api("config.export")
+def _config_export(a):
+    import cfgexport
+    return cfgexport.export(a.get("draft") or {})
+
+
 @api("gpu")
 def _gpu(a):
     g = gpu.info(max_age=1)
@@ -306,6 +312,15 @@ def _queue_add(a):
     return t
 
 
+@api("lora.info")
+def _lora_info(a):
+    import safetensors_meta
+    p = a.get("path") or ""
+    if not os.path.isfile(p):
+        raise ValueError("找不到这个文件")
+    return safetensors_meta.lora_info(p)
+
+
 @api("queue.remove")
 def _queue_remove(a):
     return tasks.remove(a["id"])
@@ -484,6 +499,16 @@ def _download_start(a):
 @api("tag.start")
 def _tag_start(a):
     return tagging.start(a["cfg"]).id
+
+
+@api("tag.resume_info")
+def _tag_resume_info(_):
+    return tagging.resume_info()
+
+
+@api("tag.resume")
+def _tag_resume(_):
+    return tagging.resume().id
 
 
 @api("tag.test_api")

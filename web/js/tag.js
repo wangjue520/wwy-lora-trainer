@@ -24,7 +24,8 @@
     vlm: { model: ['krea2', 'moss'].includes((App.spec() || {}).id) ? 'qwen3vl8b' : 'toriigate', quant: 'auto',
       preset: (App.spec() || {}).id === 'moss' ? 'moss' : 'detailed', prompt: App.state.tagger.prompts[(App.spec() || {}).id === 'moss' ? 'moss' : 'detailed'],
       max_tokens: 512, torii_format: 'long', feed_tags: true, use_names: true, temperature: 0.6 },
-    api: { preset: 'Google Gemini', base_url: App.state.tagger.api_presets[1].base_url, model: App.state.tagger.api_presets[1].model, api_key: '', concurrency: 4 },
+    api: { preset: 'Google Gemini', base_url: App.state.tagger.api_presets[1].base_url, model: App.state.tagger.api_presets[1].model, api_key: '', concurrency: 4,
+      fallback_local: true, fallback_model: 'qwen3vl8b' },
     hybrid_keep_tags: true, trigger: '', existing: 'overwrite', ext: '.txt',
   });
 
@@ -43,6 +44,7 @@
       $('#tag-start').onclick = P.start;
       $('#tag-stop').onclick = () => jobId && api('jobs.stop', { id: jobId });
       $('#tag-goedit').onclick = () => P.goEdit();
+      $('#tag-resume').onclick = P.resume;
     },
     show() {
       const d = T();
@@ -51,7 +53,23 @@
       $('#tag-dir').value = d.dir || ''; $('#tag-trigger').value = d.trigger || ''; $('#tag-ext').value = d.ext || '.txt';
       P.dirHint(); P.renderModes(); P.renderOpts(); P.renderSeg();
       const run = (App.jobs || []).find(j => j.kind === 'tag' && j.status === 'running');
-      if (run) { jobId = run.id; P.watch(); }
+      if (run) { jobId = run.id; P.watch(); } else P.refreshResume();
+    },
+    // 上次停止 / 出错时没做完的图：显示「继续反推」，只做剩下的，设置沿用上次的
+    async refreshResume() {
+      const r = await api('tag.resume_info').catch(() => null), b = $('#tag-resume');
+      b.style.display = r ? '' : 'none';
+      if (!r) return;
+      b.textContent = `继续反推（还剩 ${r.left} 张）`;
+      b.title = `${r.dataset_dir}
+上次做到 ${r.done} / ${r.total}，用上次的设置接着做剩下的图`;
+      if (!$('#tag-prog-text').textContent) $('#tag-prog-text').textContent = `上次停在 ${r.done} / ${r.total}：${r.dataset_dir}`;
+    },
+    async resume() {
+      const training = (App.queue ? App.queue.tasks : []).some(t => t.status === 'running');
+      if (training && !(await App.confirm('正在训练', '现在有任务在训练，本地反推会和训练抢显存，可能导致训练显存不足报错。仍然继续吗？', '仍然继续', true))) return;
+      try { jobId = await api('tag.resume'); } catch (e) { App.toast(e.message, 'bad'); return; }
+      $('#tag-log').innerHTML = ''; P.watch();
     },
     hide() { },
     renderSeg() {
@@ -137,6 +155,9 @@
         row('API Key', txt(a, 'api_key', 'sk-…', 'password'), '只保存在本机 data/draft.json');
         row('模型名', txt(a, 'model', '必须是支持图片输入的模型'));
         row('同时请求数', num(a, 'concurrency', 1));
+        row('', chk(a, 'fallback_local', 'API 拒答时用本地模型补上'));
+        row('补拒答的本地模型', sel(a, 'fallback_model', Object.entries(tg.vlm).map(([k, x]) => [k, `${x.label} · 约 ${x.size_gb} GB`])),
+          '拒答的图在 API 跑完后统一用它反推，用上面同一段指令（ToriiGate 用它自己的格式）；需要训练环境，第一次用会下载模型');
         const v = d.vlm;
         const pre2 = sel(v, 'preset', PRESETS,
           () => { if (v.preset !== 'custom') { v.prompt = tg.prompts[v.preset]; App.saveDraft(); } P.renderOpts(); });
@@ -170,7 +191,7 @@
     },
     watch() {
       clearInterval(timer);
-      $('#tag-start').disabled = true; $('#tag-stop').disabled = false;
+      $('#tag-start').disabled = true; $('#tag-stop').disabled = false; $('#tag-resume').style.display = 'none';
       timer = setInterval(App.poll(async () => {
         const j = await api('jobs.get', { id: jobId, log: 300 }).catch(() => null);
         if (!j) return;
@@ -180,8 +201,9 @@
         const box = $('#tag-log'); box.innerHTML = (j.log || []).map(l => `<div class="${/失败|出错|Error/.test(l) ? 'l-err' : ''}">${esc(l)}</div>`).join(''); box.scrollTop = box.scrollHeight;
         if (j.status !== 'running') {
           clearInterval(timer); $('#tag-start').disabled = false; $('#tag-stop').disabled = true;
+          P.refreshResume();
           if (j.status === 'done') {
-            $('#tag-prog-text').textContent = `完成：写入 ${j.result.count} 个标签文件${j.result.failed ? `，${j.result.failed} 张失败` : ''}`;
+            $('#tag-prog-text').textContent = `完成：写入 ${j.result.count} 个标签文件${j.result.refused ? `（${j.result.refused} 张被 API 拒答，本地模型补上 ${j.result.local} 张）` : ''}${j.result.failed ? `，${j.result.failed} 张失败` : ''}`;
             App.toast('反推完成', 'ok', '去编辑标签', () => P.goEdit(), 10000);
             // 用这次反推的文件夹和触发词（反推途中界面上可能已经换到别的文件夹了）
             const dir = j.result.dataset_dir || T().dir;

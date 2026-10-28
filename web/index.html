@@ -65,9 +65,9 @@
           <div class="summary" id="train-summary"></div>
         </div>
         <div class="card">
-          <div class="card-title">保存位置<span class="card-title-hint">训练好的 LoRA 存到这里</span></div>
+          <div class="card-title"><span class="key-chip">保存位置</span><span class="card-title-hint">训练好的 LoRA 存到这里</span></div>
           <div class="row">
-            <input type="text" id="train-outdir" placeholder="LoRA 保存文件夹">
+            <input type="text" id="train-outdir" class="key-input" placeholder="LoRA 保存文件夹">
             <button class="btn" id="train-outdir-browse">浏览…</button>
             <button class="btn" id="train-outdir-open">打开</button>
           </div>
@@ -86,6 +86,7 @@
             <button class="btn btn-sm" id="preset-load">读取</button>
             <button class="btn btn-sm" id="preset-save">存档当前配置</button>
             <button class="btn btn-sm" id="preset-import" data-tip="读取别的训练器导出的配置：kohya sd-scripts / musubi-tuner / kohya_ss GUI / 秋叶 lora-scripts / OneTrainer / ai-toolkit / SimpleTuner 的配置文件、训练命令行，或者练好的 LoRA 文件里记的训练参数。导入前逐项确认。">导入外部配置</button>
+            <button class="btn btn-sm" id="preset-export" data-tip="把当前配置存成 .toml：训练参数用 sd-scripts 的参数名，别的训练器也看得懂；用「导入外部配置」读回来不丢东西。">导出配置</button>
             <button class="btn btn-sm" id="preset-del">删除</button>
           </div>
         </div>
@@ -245,6 +246,7 @@
         <div class="action-row" style="margin-top:14px">
           <button class="btn btn-primary btn-lg" id="tag-start">开始反推</button>
           <button class="btn btn-lg btn-danger" id="tag-stop" disabled>停止</button>
+          <button class="btn btn-lg" id="tag-resume" style="display:none">继续反推</button>
           <button class="btn btn-lg" id="tag-goedit">去编辑这组标签 →</button>
           <div class="grow" style="flex:1;min-width:200px"><div class="prog" id="tag-prog"><i></i></div><div class="hint" id="tag-prog-text"></div></div>
         </div>

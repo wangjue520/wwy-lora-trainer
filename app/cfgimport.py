@@ -434,6 +434,18 @@ def _extract(R, data, kind):
     keys = set(data.keys())
 
     # ---- 本训练器 ----
+    wt = data.get("wwy_lora_trainer")
+    if isinstance(wt, dict) and isinstance(wt.get("config"), str):   # 「导出配置」的 TOML：用最后那份完整配置
+        try:
+            c = json.loads(wt["config"])
+        except ValueError:
+            raise ValueError("[wwy_lora_trainer] 里的配置坏了")
+        R.fmt = "本训练器导出的配置"
+        R.native = {"model_type": c.get("model_type") or "", "params": dict(c.get("params") or {}),
+                    "models": dict(c.get("models") or {}), "sample": c.get("sample")}
+        R.output_dir = c.get("output_dir") or ""
+        R.signals.append(R.native["model_type"])
+        return
     if data and all(isinstance(v, dict) and "by_model" in v for v in data.values()):
         R.fmt = "本训练器的配置存档文件"
         R.presets = data
@@ -1414,7 +1426,9 @@ def _fit(spec, params, R):
                 v = v if isinstance(v, bool) else str(v).strip().lower() in ("1", "true", "yes", "on")
             elif t == "select":
                 opts = [o[0] if isinstance(o, (list, tuple)) else o for o in f.get("options") or []]
-                hit = _match_opt(opts, v) or _match_opt(opts, _VALUE_ALIAS.get(k, {}).get(str(v).lower()))
+                hit = _match_opt(opts, v)
+                if hit is None:   # 不能用 or：选项值是空字符串（「默认」）时也算对上了
+                    hit = _match_opt(opts, _VALUE_ALIAS.get(k, {}).get(str(v).lower()))
                 if hit is None and k == "optimizer_type":
                     hit = next((o for o in opts if _norm_opt(o) == _norm_opt(v)), None)
                     if hit is None and "custom" in opts and "." in str(v):
