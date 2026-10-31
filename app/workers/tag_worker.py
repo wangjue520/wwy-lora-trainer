@@ -282,7 +282,14 @@ class VLM:
         info = cu.VLM_MODELS.get(key, {})
         repo = cfg.get("repo") or info.get("repo")
         self.key = key
-        d = fetch(repo, models_dir)
+        own = os.path.join(models_dir, repo.replace("/", "__"))
+        lv = (cfg.get("launcher_vlm") or {}).get(repo.replace("/", "__"))
+        if not os.path.isfile(os.path.join(own, ".lora_complete")) and lv and os.path.isfile(os.path.join(lv, "config.json")):
+            log(f"使用 WWY 启动器已下载的模型：{lv}")
+            emit(stage="load", text=f"使用 WWY 启动器里的 {repo.split('/')[-1]}")
+            d = lv
+        else:
+            d = fetch(repo, models_dir)
         kw = {"dtype": torch.bfloat16, "device_map": "cuda"}
         q = cfg.get("quant") or "auto"
         if q == "auto":
@@ -411,7 +418,8 @@ def main():
     models_dir = cfg["models_dir"]
     wcfg = dict(cfg.get("wd14") or {}, launcher_models=cfg.get("launcher_models"), launcher_dir=cfg.get("launcher_dir"))
     wd = WD14(wcfg, models_dir) if mode in ("wd14", "hybrid") else None
-    vlm = VLM(cfg.get("vlm") or {}, models_dir) if mode in ("vlm", "hybrid") else None
+    vcfg = dict(cfg.get("vlm") or {}, launcher_vlm=cfg.get("launcher_vlm"))
+    vlm = VLM(vcfg, models_dir) if mode in ("vlm", "hybrid") else None
     n = len(files)
     keep = mode == "wd14" or (mode == "hybrid" and cfg.get("hybrid_keep_tags", True))
     st = {"count": 0, "worked": 0, "done": 0, "t0": time.time()}

@@ -371,6 +371,39 @@ def launcher_wd14_models():
     return found
 
 
+def _vlm_complete(d):
+    """自然语言模型目录下完了没有：有下载完成标记（训练器 / 启动器的下载器都会写），或者 config.json 和权重分片都在。"""
+    if not os.path.isfile(os.path.join(d, "config.json")):
+        return False
+    for dp, _, fs in os.walk(d):
+        if any(f.endswith((".part", ".incomplete")) for f in fs):
+            return False
+    if os.path.isfile(os.path.join(d, ".lora_complete")):
+        return True
+    idx = _read_json(os.path.join(d, "model.safetensors.index.json"), None)
+    if idx:
+        shards = set((idx.get("weight_map") or {}).values())
+        return bool(shards) and all(os.path.isfile(os.path.join(d, s)) for s in shards)
+    return any(f.endswith(".safetensors") for f in os.listdir(d))
+
+
+def launcher_vlm_models():
+    """WWY 启动器「图片反推」页下载好的自然语言反推模型：{目录名（作者__仓库名）: 目录}。
+
+    启动器装了训练器时直接下到训练器的 models/taggers；没有训练器时下到 <启动器根目录>/vlm_models/<作者__仓库名>，
+    这里把那些找出来，训练器就不用再下一遍。只复用模型文件，推理仍在训练环境里跑。"""
+    found = {}
+    for root in _launchers_by_recent():
+        d = os.path.join(root, "vlm_models")
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            m = os.path.join(d, name)
+            if name not in found and os.path.isdir(m) and _vlm_complete(m):
+                found[name] = m
+    return found
+
+
 def launcher_wd14_root():
     """新下载的 WD 模型存到最近在用的启动器的 wd_tagger_models（两边共用）；没有启动器时返回 None。"""
     roots = _launchers_by_recent()

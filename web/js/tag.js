@@ -126,7 +126,11 @@
       if (mode === 'vlm' || mode === 'hybrid') {
         const v = d.vlm;
         if (mode === 'hybrid') grid.append(h('<div style="grid-column:1/-1;border-top:1px solid var(--line);margin:4px 0"></div>'));
-        row('自然语言模型', sel(v, 'model', Object.entries(tg.vlm).map(([k, x]) => [k, `${x.label} · 约 ${x.size_gb} GB`]), () => P.renderOpts()));
+        // 启动器「图片反推」已经下载过的自然语言模型直接用，不重复下载
+        const lv = tg.launcher_vlm || {};
+        const vlmInLauncher = k => lv[((tg.vlm[k] || {}).repo || '').replace('/', '__')];
+        row('自然语言模型', sel(v, 'model', Object.entries(tg.vlm).map(([k, x]) => [k, `${x.label} · 约 ${x.size_gb} GB` + (vlmInLauncher(k) ? ' · 启动器已下载' : '')]), () => P.renderOpts()),
+          vlmInLauncher(v.model) ? `直接用 WWY 启动器里下好的模型：${vlmInLauncher(v.model)}` : '');
         row('精度', sel(v, 'quant', [['auto', '自动（按剩余显存选，推荐）'], ['bf16', 'bf16（质量最好，显存够就选它）'], ['8bit', '8bit（显存减半）'], ['4bit', '4bit（显存最小，略降质量）']]),
           '第一次使用会自动下载模型到 models/taggers；训练时不要同时反推，会抢显存');
         if (v.model === 'toriigate') {
