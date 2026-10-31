@@ -55,7 +55,8 @@ def _boot(_):
             "queue": tasks.queue_state(), "presets": settings.load_presets(),
             "tagger": {"vlm": cu.VLM_MODELS, "wd14": cu.WD14_MODELS, "prompts": cu.PROMPT_PRESETS,
                        "api_presets": tagging.API_PRESETS, "last_dir": tagging.last_dataset(),
-                       "launcher_wd14": scanner.launcher_wd14_models(), "launcher_wd14_dir": scanner.launcher_wd14_root()},
+                       "launcher_wd14": scanner.launcher_wd14_models(), "launcher_wd14_dir": scanner.launcher_wd14_root(),
+                       "launcher_vlm": scanner.launcher_vlm_models()},
             "network": "cn" if settings.is_cn() else "global"}
 
 

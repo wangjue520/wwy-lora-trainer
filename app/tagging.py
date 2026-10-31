@@ -109,8 +109,11 @@ def _prefetch(job, conf):
     if mode in ("vlm", "hybrid"):
         v = conf.get("vlm") or {}
         repo = v.get("repo") or cu.VLM_MODELS.get(v.get("model") or "toriigate", {}).get("repo")
-        if repo:
-            need.append((repo, os.path.join(conf["models_dir"], repo.replace("/", "__")), None))
+        own = os.path.join(conf["models_dir"], repo.replace("/", "__")) if repo else ""
+        if repo and not downloader.is_verified(own) and (conf.get("launcher_vlm") or {}).get(repo.replace("/", "__")):
+            job.write(f"使用 WWY 启动器已下载的模型：{conf['launcher_vlm'][repo.replace('/', '__')]}")
+        elif repo:
+            need.append((repo, own, None))
     for repo, local, pats in need:
         if downloader.is_verified(local):   # 旧版只比大小的标记不算，补校验一次 sha256（坏了会自动重下）
             continue
@@ -133,6 +136,7 @@ def _run_local(job, cfg, files, handled, base):
     import scanner
     conf["launcher_models"] = scanner.launcher_wd14_models()
     conf["launcher_dir"] = scanner.launcher_wd14_root()
+    conf["launcher_vlm"] = scanner.launcher_vlm_models()   # 启动器「图片反推」下好的自然语言模型也直接用
     _prefetch(job, conf)
     cf = os.path.join(paths.DATA, f"tag_{job.id}.json")
     with open(cf, "w", encoding="utf-8") as f:
