@@ -129,6 +129,16 @@
     },
     defaults(spec) { const o = {}; (spec || this.spec()).params.forEach(f => { if (f.default !== null && f.default !== undefined) o[f.key] = f.default; }); return o; },
     params() { const spec = this.spec(); if (!spec) return {}; return Object.assign(this.defaults(spec), this.cur().params); },
+    // 保存名称里写着别的底模（练 MOSS 却叫 xxx_anima_v1）：返回 { other: 那个底模的名字, fixed: 换成当前底模后的名称 }，对得上返回 null
+    nameMismatch(name, spec) {
+      spec = spec || this.spec(); name = (name || '').trim();
+      if (!spec || !name) return null;
+      const re = fam => new RegExp(`(?<![a-z])${fam.replace(/\d+$/, '')}\\d*(?![a-z])`, 'gi');   // 整词匹配：animal 不算 anima，krea / krea2 都算
+      const fam = spec.family || spec.id;
+      if (re(fam).test(name)) return null;
+      const other = (this.state.specs || []).find(s => (s.family || s.id) !== fam && re(s.family || s.id).test(name));
+      return other ? { other: other.label, fixed: name.replace(re(other.family || other.id), fam) } : null;
+    },
     setParam(k, v) { const c = this.cur(); if (!c) return; c.params[k] = v; this.saveDraft(); this.emit('params'); if (k === 'dataset_dir') this.syncDataset(v, 'params'); },
     // 训练集文件夹同步（训练器设置里的开关）：爬图保存位置 / 反推 / 标签编辑 / 高级参数，改一处其它都跟着变
     syncDataset(dir, from) {

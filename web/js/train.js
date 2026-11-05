@@ -214,7 +214,8 @@
         cell('params', 'LR · 学习率', isFinite(lr) ? lr.toExponential(1).replace('e-', 'e-') : String(p.learning_rate), `${p.optimizer_type} · ${p.lr_scheduler}`) +
         cell('sample', 'PREVIEW · 测试', !c.sample.enabled ? '关闭' : c.sample.follow_save !== false ? (p.save_every_n_epochs > 0 ? `每 ${p.save_every_n_epochs} 轮` : '训练结束时')
           : (c.sample.every_n_epochs > 0 ? `每 ${c.sample.every_n_epochs} 轮` : `每 ${c.sample.every_n_steps || '—'} 步`), `${(c.sample.prompts || []).length} 条提示词`) +
-        cell('params', 'NAME · 保存名称', p.output_name || '—', p.gradient_checkpointing ? '梯度检查点：开' : '梯度检查点：关');
+        cell('params', 'NAME · 保存名称', p.output_name || '—', App.nameMismatch(p.output_name) ? `名称里写着 ${App.nameMismatch(p.output_name).other}，点这里去改`
+          : p.gradient_checkpointing ? '梯度检查点：开' : '梯度检查点：关', !!App.nameMismatch(p.output_name));
       P.bindSummary();
     },
     bindSummary() { App.$$('#train-summary > div').forEach(d => d.onclick = () => App.go(d.dataset.go)); },

@@ -99,7 +99,24 @@
       wrap.querySelector('label').after(input);
     }
     if (JSON.stringify(v) !== JSON.stringify(defaults[f.key]) && v !== undefined) wrap.classList.add('changed');
+    if (f.key === 'output_name') nameCheck(wrap, input, set);
     return wrap;
+  }
+
+  // 保存名称里写的是别的底模（练 MOSS 却叫 xxx_anima_v1）：标红，给一个一键改名的按钮
+  function nameCheck(wrap, input, set) {
+    const warn = h('<div class="hint bad name-warn" hidden><span></span><button class="btn btn-sm"></button></div>');
+    wrap.append(warn);
+    const check = () => {
+      const m = App.nameMismatch(input.value);
+      wrap.classList.toggle('name-bad', !!m); warn.hidden = !m;
+      if (!m) return;
+      warn.querySelector('span').textContent = `现在练的是 ${App.spec().label}，名称里却写着 ${m.other}`;
+      const b = warn.querySelector('button'); b.textContent = `一键改成 ${m.fixed}`;
+      b.onclick = () => { input.value = m.fixed; set(m.fixed); check(); };
+    };
+    input.addEventListener('input', check);
+    check();
   }
 
   const P = App.pages.params = {
@@ -181,7 +198,10 @@
         const on = Object.entries(pr.values).every(([k, v]) => p[k] === v);
         const b = h(`<button class="preset ${pr === rec ? 'rec' : ''} ${on ? 'on' : ''}" title="${esc(Object.entries(pr.values).map(([k, v]) => k + '=' + v).join('  '))}"><b>${esc(pr.label)}</b><span>${esc(pr.note)}</span></button>`);
         b.onclick = () => {
-          const c = App.cur(); Object.assign(c.params, pr.values); App.saveDraft(true);
+          const c = App.cur();
+          // 换档时把上一档多带的值（比如 8 / 12 GB 档的学习率、优化器）撤回默认；和那一档不一样的（自己改过的）不动
+          spec.presets.forEach(o => o !== pr && Object.entries(o.values).forEach(([k, v]) => { if (!(k in pr.values) && c.params[k] === v) delete c.params[k]; }));
+          Object.assign(c.params, pr.values); App.saveDraft(true);
           App.toast(`已套用 ${pr.label} 显存档：${pr.note}`, 'ok'); P.render(); P.renderVram(); P.scheduleStats(0); App.emit('params');
         };
         el.append(b);

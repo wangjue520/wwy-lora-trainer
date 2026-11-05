@@ -99,7 +99,7 @@ class Anima(ModelSpec):
         f = common_fields(
             {"learning_rate": 5e-5, "optimizer_type": "lora_optim.Automagic", "lr_scheduler": "constant", "lr_warmup_steps": 0,
              "output_name": "mylora_anima_v1", "network_dim": 16, "network_alpha": 16, "batch_size": 2, "epochs": 10,
-             "repeats": 10, "export_comfy": False, "timestep_sampling": "sigmoid", "discrete_flow_shift": 3.0},
+             "repeats": 6, "export_comfy": False, "timestep_sampling": "sigmoid", "discrete_flow_shift": 3.0},
             optimizers=OPTIMIZERS,
             timesteps=[["sigmoid", "sigmoid（官方默认）"], ["shift", "shift"], ["uniform", "uniform"],
                        ["sigma", "sigma"], ["flux_shift", "flux_shift"]])
@@ -229,16 +229,19 @@ class Anima(ModelSpec):
         return f
 
     def vram_presets(self):
+        # 8 / 12 GB 档顺带换成实测好用的学习率组合（AdamW8bit 2e-4 + cosine，不练文本编码器）
+        lr = {"learning_rate": 2e-4, "optimizer_type": "AdamW8bit", "optimizer_args": "", "lr_scheduler": "cosine",
+              "lr_warmup_steps": 0, "lr_scheduler_args": "", "max_grad_norm": 1.0, "loss_type": "l2", "train_te": False}
         return [
             {"id": "6g", "label": "6 GB", "min_gb": 5.5, "note": "分辨率降到 768，块交换 20",
              "values": {"batch_size": 1, "resolution": 768, "blocks_to_swap": 20, "gradient_checkpointing": True,
                         "num_workers": 0, "unsloth_offload": False}},
-            {"id": "8g", "label": "8 GB", "min_gb": 7.5, "note": "1024 分辨率，块交换 14",
+            {"id": "8g", "label": "8 GB", "min_gb": 7.5, "note": "1024 分辨率，块交换 14，AdamW8bit 2e-4",
              "values": {"batch_size": 1, "resolution": 1024, "blocks_to_swap": 14, "gradient_checkpointing": True,
-                        "num_workers": 1, "unsloth_offload": False}},
-            {"id": "12g", "label": "12 GB", "min_gb": 11.5, "note": "批量 2，块交换 4",
+                        "num_workers": 1, "unsloth_offload": False, **lr}},
+            {"id": "12g", "label": "12 GB", "min_gb": 11.5, "note": "批量 2，块交换 4，AdamW8bit 2e-4",
              "values": {"batch_size": 2, "resolution": 1024, "blocks_to_swap": 4, "gradient_checkpointing": True,
-                        "num_workers": 2, "unsloth_offload": False}},
+                        "num_workers": 2, "unsloth_offload": False, **lr}},
             {"id": "16g", "label": "16 GB", "min_gb": 15.5, "note": "批量 2，不交换",
              "values": {"batch_size": 2, "resolution": 1024, "blocks_to_swap": 0, "gradient_checkpointing": True,
                         "num_workers": 2}},
