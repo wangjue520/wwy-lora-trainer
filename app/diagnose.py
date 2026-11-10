@@ -42,6 +42,11 @@ def fix(*args, danger=False, **data):
     return {"id": fid, "label": label, "desc": desc, "danger": danger, "data": data}
 
 
+def default_attn(spec):
+    """各底模「注意力实现」默认的 torch SDPA 在参数里的写法（musubi / SDXL 写 sdpa，sd-scripts 的 Anima 系写 torch）。"""
+    return "sdpa" if spec and spec.id in ("krea2", "sdxl") else "torch"
+
+
 # ======================= 开训前体检 =======================
 def check_dataset(dataset_dir, caption_ext=".txt"):
     """返回 (issues, stats)。"""
@@ -257,8 +262,9 @@ RULES = [
      "显卡不支持 fp8", "30 系及更早的显卡不支持 fp8 计算。", "fp8"),
     ("triton", r"No module named 'triton'|triton.*not (found|available)|TritonMissing|Cannot find a working triton installation",
      "缺少 Triton（int8 加速需要）", "int8 ConvRot 量化需要 triton 才能加速。", "triton"),
-    ("xformers", r"xformers.*(not|error|Error)|memory_efficient_attention.*(not|error)",
-     "xformers 不可用", "xformers 没装或版本和 PyTorch 不匹配。", "xformers"),
+    # musubi 导入 xformers 失败时不报错（xops = None），真正算注意力时才报 'NoneType' object has no attribute 'memory_efficient_attention'
+    ("xformers", r"xformers.*(not|error|Error)|memory_efficient_attention.*(not|error)|has no attribute 'memory_efficient_attention'",
+     "xformers 不可用", "注意力实现选了 xformers，但训练环境里没装，或者版本和 PyTorch 不匹配。", "xformers"),
     ("flash", r"No module named 'flash_attn'|flash_attn.*(error|not)",
      "flash-attn 不可用", "没有安装 flash-attn。", "attn_torch"),
     ("sage", r"No module named 'sageattention'",
@@ -391,8 +397,10 @@ def _fixes_for(kind, m, task, spec, p, tail):
         return [fix("pip_install", "安装 triton-windows 后重试", "pip install triton-windows", pkg="triton-windows"),
                 fix("set_params", "改用 fp8 量化后重试", "不需要 triton，但 30 系显卡上会慢一些。", values={"quant": "fp8"})]
     if kind in ("xformers", "attn_torch"):
-        return [fix("set_params", "改用默认注意力实现后重试", "注意力实现改回 torch SDPA。",
-                    values={"attn_mode": "sdpa" if spec and spec.id in ("krea2", "sdxl") else "torch"})]
+        out = [fix("set_params", "改用默认注意力实现后重试", "注意力实现改回 torch SDPA。", values={"attn_mode": default_attn(spec)})]
+        if kind == "xformers" and p.get("attn_mode") == "xformers":
+            out.insert(0, fix("install_attn", "安装 xformers 后重试", "在训练环境里安装（PyTorch 版本不变），装好后自动继续。", mode="xformers"))
+        return out
     if kind == "nan":
         lr = float(p.get("learning_rate") or 1e-4)
         return [fix("set_params", f"学习率减半（{lr:g} → {lr / 2:g}）后重试", "同时把混合精度设为 bf16、开启梯度裁剪 1.0。",

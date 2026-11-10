@@ -493,6 +493,55 @@ def _set(t, **kw):
         _save()
 
 
+def _ensure_attn(t, spec, log):
+    """「注意力实现」选了 xformers 这类训练环境默认不带的包：开训前先看能不能导入，没有就自动装（xformers），
+    装不了的（flash-attn / SageAttention，或者安装失败）拦下来让用户选「重新安装」或改回默认。返回 False 表示已拦下 / 已停止。"""
+    import envsetup
+    import jobs
+    mode = (t.get("params") or {}).get("attn_mode")
+    if mode not in envsetup.ATTN_PKGS:
+        return True
+    name, pip_name, _ = envsetup.ATTN_PKGS[mode]
+    _set(t, status="checking", message=f"检查 {name}…")
+    err = envsetup.attn_check(mode)
+    if not err:
+        return True
+    log(f"[环境] 注意力实现选了 {name}，但训练环境里用不了（{err}）")
+    if pip_name:
+        log(f"[环境] 自动安装 {name}…")
+        _set(t, message=f"安装 {name}…")
+        j = jobs.start("env", f"安装 {name}（注意力实现）", envsetup.install_attn, mode)
+        while j.status == "running":
+            if _state["stop_req"]:
+                j.stop_flag = True
+                if j.proc:
+                    kill_tree(j.proc.pid)
+            time.sleep(0.5)
+        for ln in list(j.log):
+            log("  " + ln)
+        if _state["stop_req"]:
+            _set(t, status="stopped", finished=time.time(), message="已手动停止")
+            log("===== 已手动停止 =====")
+            return False
+        if j.status == "done":
+            log(f"[环境] {name} 装好了，开始训练")
+            return True
+        err = j.error or err
+    default = diagnose.default_attn(spec)
+    fixes = ([diagnose.fix("install_attn", f"重新安装 {name} 后继续", "在训练环境里安装（PyTorch 版本不变），装好后自动继续。", mode=mode)]
+             if pip_name else [])
+    fixes.append(diagnose.fix("set_params", "改用默认注意力实现后继续", "注意力实现改回 torch SDPA，速度和显存差别不大。",
+                              values={"attn_mode": default}))
+    issue = {"level": "error", "code": "attn_missing",
+             "title": f"{name} " + ("自动安装失败" if pip_name else "没有安装"),
+             "reason": (f"安装出错：{err}" if pip_name else
+                        f"训练环境里没有 {name}，Windows 上没有官方安装包，没法自动安装。"),
+             "fixes": fixes}
+    log(f"[检查] {issue['title']}：{issue['reason']}")
+    _set(t, status="blocked", issues=[issue], message=issue["title"] + "，需要你确认处理方式")
+    return False
+
+
 def _run_task(t):
     spec = models.get(t["model_type"])
     td = task_dir(t)
@@ -517,6 +566,8 @@ def _run_task(t):
             if blocking:
                 _set(t, status="blocked", issues=blocking, message=blocking[0]["title"] + "，需要你确认处理方式")
                 return
+        if not _ensure_attn(t, spec, log):
+            return
         os.makedirs(t["output_dir"], exist_ok=True)
         gpus = t.get("gpus") or settings.gpu_list()
         tb = dict(t, params=dict(t["params"], _num_gpus=len(gpus)))

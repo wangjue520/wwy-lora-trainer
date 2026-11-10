@@ -552,6 +552,45 @@ def pin_current():
     return v["engines"]
 
 
+# 「注意力实现」选了这些时，训练环境里要有对应的包：模式 → (显示名, pip 包名, import 名)。
+# 训练环境默认不装：引擎导入失败时不报错，等真正算注意力才报「'NoneType' object has no attribute 'memory_efficient_attention'」。
+# xformers 在 PyPI 上有 Windows 版（0.0.35 起只要求 torch>=2.10，2.6 MB），能自动装；
+# flash-attn / SageAttention 在 Windows 上没有官方安装包，只能提示改回 SDPA。
+ATTN_PKGS = {"xformers": ("xformers", "xformers", "xformers.ops"),
+             "flash": ("flash-attn", None, "flash_attn"), "flash_attn": ("flash-attn", None, "flash_attn"),
+             "sage_attn": ("SageAttention", None, "sageattention")}
+
+
+def attn_check(mode):
+    """返回 None（不需要额外的包 / 已经能用）或导入失败的原因。会起一次训练环境的 Python（导入 torch 要几秒）。"""
+    pkg = ATTN_PKGS.get(mode or "")
+    py = paths.env_python()
+    if not pkg or not py:
+        return None
+    try:
+        r = subprocess.run([py, "-c", f"import {pkg[2]}"], capture_output=True, env=_env(), creationflags=NO_WINDOW, timeout=180)
+    except subprocess.TimeoutExpired:
+        return None   # 判断不了就照常开训，真出错了再诊断
+    if r.returncode == 0:
+        return None
+    out = re.sub(r"\x1b\[[0-9;]*m", "", r.stderr.decode("utf-8", errors="replace"))   # Python 3.13 的报错带颜色
+    err = [ln for ln in out.strip().splitlines() if ln.strip()]
+    return err[-1][:300] if err else f"import {pkg[2]} 失败"
+
+
+def install_attn(job, mode):
+    """自动安装注意力实现要的包（钉住 PyTorch，避免被换成 CPU 版），装完再导入一次确认能用。"""
+    name, pip_name, _ = ATTN_PKGS[mode]
+    if not pip_name:
+        raise RuntimeError(f"{name} 没有可以自动安装的版本")
+    _pip(job, ["-U", pip_name] + _torch_pin())
+    err = attn_check(mode)
+    if err:
+        raise RuntimeError(f"装好了但导入失败：{err}")
+    job.write(f"{name} 可以用了")
+    return True
+
+
 def pip_install(job, pkg):
     """报错修复里的「安装 xxx 后重试」。同样钉住 PyTorch：xformers / bitsandbytes 这类包会顺手把 torch 换成 CPU 版。"""
     _pip(job, pkg.split() + _torch_pin())
