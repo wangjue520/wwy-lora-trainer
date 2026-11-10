@@ -53,6 +53,7 @@ def _boot(_):
     if draft.get("model_type"):   # 比如 Windows 上草稿里还是 MOSS 专用引擎：换成同一个底模的 sd-scripts 引擎
         draft["model_type"] = models.visible_id(draft["model_type"])
     return {"version": updater.version(), "settings": settings.load(), "specs": [s.to_dict() for s in models.all_specs()],
+            "spec_aliases": models.hidden_aliases(),
             "draft": draft, "gpu": gpu.info(), "env": envsetup.status(), "scan": scanner.scan_state(),
             "queue": tasks.queue_state(), "presets": settings.load_presets(),
             "tagger": {"vlm": cu.VLM_MODELS, "wd14": cu.WD14_MODELS, "prompts": cu.PROMPT_PRESETS,

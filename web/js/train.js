@@ -306,9 +306,11 @@
     loadTask(t) {
       App.confirm('载入任务设置', `用任务「${esc(t.name)}」的模型、参数和测试设置覆盖当前配置？`, '载入').then(ok => {
         if (!ok) return;
-        App.draft.model_type = t.model_type;
-        const c = App.cur();
-        c.models = Object.assign({}, t.models); c.params = Object.assign({}, t.params); c.sample = JSON.parse(JSON.stringify(t.sample || c.sample));
+        const id = App.visibleType(t.model_type);
+        if (!id) { App.toast('这个任务的底模在本机用不了，没法载入', 'bad'); return; }
+        App.draft.model_type = id;
+        const c = App.cur(), fit = id === t.model_type ? t : App.fitConfig(id, t);
+        c.models = Object.assign({}, fit.models); c.params = Object.assign({}, fit.params); c.sample = JSON.parse(JSON.stringify(t.sample || c.sample));
         App.saveDraft(true); App.emit('model_type'); P.renderSummary(); App.toast('已载入，可以修改后再加入队列', 'ok');
       });
     },
@@ -318,10 +320,12 @@
       const outs = t.outputs.slice().sort((a, b) => a.mtime - b.mtime);
       const w = outs.find(o => o.name === name + '.safetensors') || outs[outs.length - 1];
       if (!(await App.confirm('继续训练', `载入任务「${esc(t.name)}」的模型和参数，在 <b>${esc(w.name)}</b> 的基础上接着练，保存名称改成「${esc(name)}_cont」。`, '载入'))) return;
-      App.draft.model_type = t.model_type;
-      const c = App.cur();
-      c.models = Object.assign({}, t.models);
-      c.params = Object.assign({}, t.params, { network_weights: w.path, dim_from_weights: true, output_name: name + '_cont' });
+      const id = App.visibleType(t.model_type);
+      if (!id) { App.toast('这个任务的底模在本机用不了，没法载入', 'bad'); return; }
+      App.draft.model_type = id;
+      const c = App.cur(), fit = id === t.model_type ? t : App.fitConfig(id, t);
+      c.models = Object.assign({}, fit.models);
+      c.params = Object.assign({}, fit.params, { network_weights: w.path, dim_from_weights: true, output_name: name + '_cont' });
       c.sample = JSON.parse(JSON.stringify(t.sample || c.sample));
       App.saveDraft(true); App.emit('model_type'); P.renderSummary();
       App.toast('已载入，确认参数后再开始训练', 'ok'); App.go('params');

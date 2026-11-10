@@ -111,8 +111,28 @@
       d.tag = d.tag || {};
       // 反推完自动整理触发词默认关闭（主触发词容易选错）。老版本默认开着，草稿 / 存档里存下的「开」统一关掉一次，之后自己再勾才生效
       if (d.tag.auto_trigger_v !== 2) { d.tag.auto_trigger = false; d.tag.auto_trigger_v = 2; }
-      if (d.model_type && !this.spec(d.model_type)) d.model_type = '';
+      // 本机不列出的引擎（Windows 上的 MOSS 专用引擎，比如从 Linux 导过来的存档）：配置挪到同一底模能用的引擎上
+      const al = this.state.spec_aliases || {};
+      Object.keys(al).forEach(old => {
+        const c = d.by_model[old];
+        if (c && !d.by_model[al[old]] && this.spec(al[old])) d.by_model[al[old]] = this.fitConfig(al[old], c);
+        delete d.by_model[old];
+      });
+      if (d.model_type && !this.spec(d.model_type)) d.model_type = this.visibleType(d.model_type);
       if (d.model_type) this.cur();
+    },
+    // 本机能用的引擎 id：本身能用返回原值，换得了引擎返回替代的引擎，都不行返回 ''
+    visibleType(id) { return this.spec(id) ? id : ((this.state.spec_aliases || {})[id] || ''); },
+    // 别的引擎的配置套到 id 上：只留这个引擎有的参数（下拉框只留它有的选项）和模型槽位
+    fitConfig(id, c) {
+      const spec = this.spec(id), fields = Object.fromEntries(spec.params.map(f => [f.key, f])), slots = new Set(spec.slots.map(s => s.key));
+      const ok = (f, v) => f.type !== 'select' || (f.options || []).some(o => String(Array.isArray(o) ? o[0] : o) === String(v));
+      const params = {}, models = {};
+      Object.entries(c.params || {}).forEach(([k, v]) => { if (fields[k] && ok(fields[k], v)) params[k] = v; });
+      Object.entries(c.models || {}).forEach(([k, v]) => { if (slots.has(k) && v) models[k] = v; });
+      const out = { models, params };
+      if (c.sample) out.sample = JSON.parse(JSON.stringify(c.sample));
+      return out;
     },
     cur() {
       const d = this.draft, spec = this.spec();

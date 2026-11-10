@@ -209,8 +209,9 @@ class MossNative(Moss):
         p = dict(self.defaults())
         p.update(task.get("params") or {})
         m = task.get("models") or {}
-        if plat.IS_WIN:   # 界面已经不列出了，这里拦的是升级前排进队列的旧任务
-            raise RuntimeError("MOSS 专用引擎只支持 Linux，Windows 上请到「模型设置」把 MOSS-Image 切回 sd-scripts 引擎后重新添加任务")
+        if plat.IS_WIN:   # 正常到不了这里：队列在读取 / 重试 / 开训前已经把这类任务换成 sd-scripts 引擎（models.migrate_task）
+            raise ParamError("MOSS 专用引擎只支持 Linux。请把这个任务删掉，到「模型设置」选 MOSS-Image"
+                             "（Windows 上自动用 sd-scripts 引擎，bf16 和 int8 量化模型都能练）后重新加入队列。")
         env_py = self.env_python()
         if not env_py:
             raise RuntimeError("训练环境还没安装")
