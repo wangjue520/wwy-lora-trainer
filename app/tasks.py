@@ -72,7 +72,35 @@ def load():
         if t.get("status") in ("running", "checking"):
             t["status"] = "stopped"
             t["message"] = "训练器关闭时任务被中断"
+        _migrate(t)
     _save()
+
+
+def _vram_gb():
+    try:
+        return float(gpu.info().get("total_gb") or 0)
+    except Exception:
+        return 0
+
+
+def _migrate_note(t):
+    """先判断要不要换引擎，要换才去查显存（nvidia-smi 慢，不在每次重试时都跑）。"""
+    if models.runnable(t.get("model_type")):
+        return ""
+    return models.migrate_task(t, _vram_gb())
+
+
+def _migrate(t):
+    """本机跑不了的引擎（Windows 上的 MOSS 专用引擎）换成同一底模能用的引擎。
+    因为这个原因失败的任务改成「已停止」，点「从头重新训练」就能直接练，不会再报同一个错。"""
+    note = _migrate_note(t)
+    if not note:
+        return ""
+    if t.get("status") == "failed":
+        t.update(status="stopped", error=None, issues=None, progress=None, resume=None)
+    if t.get("status") != "queued":
+        t["message"] = note
+    return note
 
 
 def _find(tid):
@@ -168,6 +196,11 @@ def add(draft, name=None, start=False):
     spec = models.get(draft.get("model_type"))
     if not spec:
         raise ValueError("请先在「模型设置」选择底模类型")
+    conv = None if models.runnable(spec.id) else \
+        models.convert(spec.id, dict(spec.defaults(), **(draft.get("params") or {})), draft.get("models"), _vram_gb())
+    if conv:   # 本机跑不了的引擎（旧页面 / 旧存档带进来的）：换成同一底模能用的引擎再排队
+        spec, cp, cm, _note = conv
+        draft = dict(draft, model_type=spec.id, params=cp, models=cm)
     p = dict(spec.defaults())
     p.update(draft.get("params") or {})
     check_weights(spec, p)
@@ -251,11 +284,12 @@ def requeue(tid, patch_params=None, patch_models=None):
         t = _find(tid)
         if not t or t["status"] in ("running", "checking"):
             return None
+        note = _migrate_note(t)
         if patch_params:
             t["params"].update(patch_params)
         if patch_models:
             t["models"].update(patch_models)
-        t.update(status="queued", message="", error=None, issues=None, progress=None, resume=None, tb_runs=[])
+        t.update(status="queued", message=note, error=None, issues=None, progress=None, resume=None, tb_runs=[])
         _save()
         _cond.notify_all()
     return t
@@ -494,6 +528,10 @@ def _set(t, **kw):
 
 
 def _run_task(t):
+    with _lock:
+        note = _migrate_note(t)
+        if note:
+            _save()
     spec = models.get(t["model_type"])
     td = task_dir(t)
     logf = open(log_path(t), "a", encoding="utf-8")
@@ -502,6 +540,8 @@ def _run_task(t):
         logf.write(s.rstrip("\n") + "\n")
         logf.flush()
 
+    if note:
+        log(f"[提示] {note}")
     try:
         log(f"===== {time.strftime('%Y-%m-%d %H:%M:%S')} 开始任务：{t['name']}（{spec.label if spec else t['model_type']}）=====")
         # ---- 体检 ----
