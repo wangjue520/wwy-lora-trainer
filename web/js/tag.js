@@ -109,10 +109,16 @@
         const w = d.wd14;
         // 启动器「WD14 反推」已经下载过的模型直接用，不重复下载
         const lw = tg.launcher_wd14 || {};
-        const inLauncher = k => lw[(tg.wd14[k] || {}).repo.split('/').pop()];
-        row('WD14 模型', sel(w, 'model', Object.entries(tg.wd14).map(([k, v]) => [k, v.label + (inLauncher(k) ? ' · 启动器已下载' : '')]), () => P.renderOpts()),
+        const inLauncher = k => lw[(tg.wd14[k] || {}).launcher || (tg.wd14[k] || {}).repo.split('/').pop()];
+        let prevModel = w.model;
+        row('WD14 模型', sel(w, 'model', Object.entries(tg.wd14).map(([k, v]) => [k, v.label + (inLauncher(k) ? ' · 启动器已下载' : '')]), () => {
+          // PixAI 官方推荐的通用阈值是 0.3：换过去时跟着换，换回 WD 时还原成 0.35（自己改过的阈值不动）
+          const was = (tg.wd14[prevModel] || {}).general_threshold || 0.35, now = (tg.wd14[w.model] || {}).general_threshold || 0.35;
+          if (w.general_threshold === was) { w.general_threshold = now; App.saveDraft(); }
+          prevModel = w.model; P.renderOpts();
+        }),
           inLauncher(w.model) ? `直接用 WWY 启动器里下好的模型：${inLauncher(w.model)}`
-            : (tg.launcher_wd14_dir && ['vit', 'eva02-large'].includes(w.model) ? `第一次使用会下载到 WWY 启动器的模型目录，启动器也能直接用：${tg.launcher_wd14_dir}`
+            : (tg.launcher_wd14_dir && (tg.wd14[w.model] || {}).launcher ? `第一次使用会下载到 WWY 启动器的模型目录，启动器也能直接用：${tg.launcher_wd14_dir}`
               : '第一次使用会自动下载到训练器的 models/taggers'));
         row('通用标签阈值', num(w, 'general_threshold', 0.01), '越低标签越多（也越容易有错的），0.3–0.4 常用');
         row('角色标签阈值', num(w, 'character_threshold', 0.01));

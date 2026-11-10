@@ -388,6 +388,7 @@
       if (!(err.fixes || []).length) body.querySelector('[data-fixes]').innerHTML = '<div class="hint">这个问题没法自动解决，请按上面的说明处理后点「重试」。</div>';
       const m = this.modal({ title: `训练失败${name ? '：' + name : ''}`, body, wide: true, bad: true, buttons: [
         { label: '关闭' },
+        ...(tid && App.diagnose ? [{ label: '诊断面板（AI 分析）', fn: () => { App.diagnose.open({ type: 'task', id: tid }); } }] : []),
         ...(tid ? [{ label: '不修改，直接重试', fn: async () => { await api('queue.requeue', { id: tid, start: true }); this.toast('已重新加入队列'); } }] : []),
       ] });
     },

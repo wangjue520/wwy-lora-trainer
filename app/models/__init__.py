@@ -3,6 +3,7 @@
 import plat
 from .base import ModelSpec, Slot, F, dataset_subsets, estimate_steps  # noqa: F401
 from .anima import Anima
+from .anima29 import Anima29
 from .krea2 import Krea2
 from .sdxl import SDXL
 from .moss import Moss
@@ -16,7 +17,7 @@ def register(spec):
     return spec
 
 
-for _cls in (Anima, Krea2, SDXL, Moss, MossNative):   # _BUILTIN
+for _cls in (Anima, Anima29, Krea2, SDXL, Moss, MossNative):   # _BUILTIN
     register(_cls())
 
 

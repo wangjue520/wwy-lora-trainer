@@ -23,8 +23,8 @@ def info(max_age=5):
     """{name, total_gb, used_gb, free_gb, compute_cap, driver, util}；没有 N 卡时返回 {}。"""
     if _cache["v"] is not None and time.time() - _cache["t"] < max_age:
         return _cache["v"]
-    out = _smi(["--query-gpu=index,name,memory.total,memory.used,memory.free,compute_cap,driver_version,utilization.gpu,temperature.gpu",
-                "--format=csv,noheader,nounits"])
+    out = _smi(["--query-gpu=index,name,memory.total,memory.used,memory.free,compute_cap,driver_version,utilization.gpu,temperature.gpu,"
+                "pci.bus_id", "--format=csv,noheader,nounits"])
     res = {}
     if out:
         try:
@@ -43,9 +43,21 @@ def info(max_age=5):
             res = {"index": row[0], "name": row[1], "total_gb": round(fl(row[2]) / 1024, 1),
                    "used_gb": round(fl(row[3]) / 1024, 1), "free_gb": round(fl(row[4]) / 1024, 1),
                    "compute_cap": fl(row[5]), "driver": row[6], "util": fl(row[7]), "temp": fl(row[8]),
-                   "all": [{"index": r[0], "name": r[1], "total_gb": round(fl(r[2]) / 1024, 1)} for r in rows]}
+                   "bus": row[9] if len(row) > 9 else "",
+                   "all": [{"index": r[0], "name": r[1], "total_gb": round(fl(r[2]) / 1024, 1), "bus": r[9] if len(r) > 9 else ""}
+                           for r in rows]}
     _cache.update(t=time.time(), v=res)
     return res
+
+
+def describe(ids):
+    """训练日志里写一行实际用的是哪张卡（编号按 PCI 总线，和设置页一致，见 settings.child_env 的 CUDA_DEVICE_ORDER）。"""
+    rows = {x["index"]: x for x in (info().get("all") or [])}
+    parts = []
+    for i in ids:
+        x = rows.get(str(i).strip())
+        parts.append(f"{i} 号 {x['name']}" + (f"（PCI {x['bus']}）" if x.get("bus") else "") if x else f"{i} 号")
+    return "使用显卡：" + "、".join(parts) if parts else "使用显卡：默认"
 
 
 # 这些进程绝不能结束：系统组件、桌面、浏览器（训练器界面就开在浏览器里）

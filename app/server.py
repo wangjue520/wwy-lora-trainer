@@ -18,6 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import captionutil as cu
 import cfgimport
 import dataset
+import aiconf
+import diag_ai
 import diagnose
 import envsetup
 import fixes
@@ -904,7 +906,89 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             if not isinstance(e, ValueError):
                 traceback.print_exc()
+                diag_ai.record_error("接口 " + name, traceback.format_exc())   # 兜底：没预料到的异常也要在诊断面板里报出来
             self._send(200, {"ok": False, "error": str(e) or e.__class__.__name__})
+
+
+# ======================= 诊断面板（规则 + AI，见 app/diag_ai.py；AI 配置和启动器同步，见 app/aiconf.py） =======================
+@api("diag.problems")
+def _diag_problems(_):
+    return {"problems": [{"key": p["key"], "name": p["name"], "time": p["time"], "target": p["target"]} for p in diag_ai.problems()]}
+
+
+@api("diag.info")
+def _diag_info(_):
+    return {"targets": diag_ai.targets(), "ai": aiconf.public()}
+
+
+@api("diag.run")
+def _diag_run(a):
+    return diag_ai.report(a.get("target"))
+
+
+@api("diag.fix")
+def _diag_fix(a):
+    return diag_ai.apply_action(a.get("target"), a.get("aid"), a.get("params") or {}, rule=bool(a.get("rule")))
+
+
+@api("diag.undo")
+def _diag_undo(a):
+    return diag_ai.undo(a.get("token"))
+
+
+@api("diag.ai")
+def _diag_ai_start(a):
+    return {"job": diag_ai.start_ai(a.get("target"), a.get("note") or "", a.get("followup"), bool(a.get("fix"))).id}
+
+
+@api("diag.takeover")
+def _diag_takeover(a):
+    return {"job": diag_ai.start_takeover(a.get("target"), a.get("note") or "").id}
+
+
+@api("diag.poll")
+def _diag_poll(a):
+    return diag_ai.poll(a.get("job"), a.get("since"), a.get("tk_since"))
+
+
+@api("diag.cancel")
+def _diag_cancel(a):
+    return diag_ai.cancel(a.get("job"))
+
+
+@api("diag.note_set")
+def _diag_note(a):
+    return {"note": aiconf.set_note(a.get("target"), a.get("text") or "")}
+
+
+@api("diag.clear_errors")
+def _diag_clear(a):
+    diag_ai.clear_errors(a.get("ids"))
+    return True
+
+
+@api("diag.report_error")
+def _diag_report(a):
+    diag_ai.record_error("界面", str(a.get("text") or "")[:4000])
+    return True
+
+
+@api("diag.config")
+def _diag_config(_):
+    v = aiconf.sync()
+    return dict(aiconf.public(), api_key=v["diag_llm_api_key"])
+
+
+@api("diag.config_save")
+def _diag_config_save(a):
+    aiconf.save(a.get("values") or {})
+    return dict(aiconf.public(), api_key=aiconf.current()["diag_llm_api_key"])
+
+
+@api("diag.test")
+def _diag_test(a):
+    ok, text = diag_ai.ping(dict(aiconf.current(), **(a.get("values") or {})))
+    return {"ok": ok, "text": text}
 
 
 class _Server(ThreadingHTTPServer):

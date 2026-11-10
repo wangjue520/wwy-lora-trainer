@@ -1540,6 +1540,7 @@ def _find_model(R, src, spec, slot):
 # ======================= 判断底模 =======================
 
 _FAMILIES = [   # (正则, 底模 id；!开头 = 这个训练器不支持的底模)
+    (r"anima[-_ ]?2\.9b", "anima29"),
     (r"anima", "anima"),
     (r"krea[-_ ]?2", "krea2"),
     (r"moss", "moss"),

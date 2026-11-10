@@ -702,6 +702,8 @@ def _run_step(t, s, log):
             env["LORA_ACTUAL_LR_BASE"] = str(r.get("base") or 0)
     with _lock:
         _state["step_kind"] = s["kind"]
+    if s["kind"] == "train":
+        log(gpu.describe(env["CUDA_VISIBLE_DEVICES"].split(",")))
     log("$ " + plat.quote_cmd(cmd))
     proc = subprocess.Popen(cmd, cwd=s["cwd"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             stdin=subprocess.DEVNULL, **plat.popen_kwargs())

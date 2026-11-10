@@ -792,3 +792,78 @@ if os.environ.get("LORA_TRAINER") and (os.environ.get("LORA_SAMPLE_DIT") or os.e
             return spec
 
     _sys10.meta_path.insert(0, _MossSampleFinder())
+
+
+# ---------------- Anima 加深版（Anima 2.9B：28 层 → 40 层） ----------------
+# sd-scripts 的 anima_utils.load_anima_model 把 DiT 层数写死成 28，40 层的 Anima 2.9B 加载时多出来的 12 层权重对不上。
+# 2.9B 只是在原结构里插了 12 层（其余维度、LLM Adapter 全都一样），这里按模型文件里实际的层数建模型。
+if os.environ.get("LORA_TRAINER"):
+    import sys as _sys11
+
+    def _anima_file_blocks(path):
+        import json
+        import re
+        import struct
+        with open(path, "rb") as f:
+            n = struct.unpack("<Q", f.read(8))[0]
+            keys = json.loads(f.read(n))
+        best = -1
+        for k in keys:
+            if "llm_adapter" in k:
+                continue
+            m = re.match(r"(?:.*\.)?blocks\.(\d+)\.", k)
+            if m:
+                best = max(best, int(m.group(1)))
+        return best + 1
+
+    def _patch_anima_depth(module):
+        am = module.anima_models
+        init = am.Anima.__init__
+
+        def __init__(self, *a, **kw):
+            n = getattr(am, "_lora_num_blocks", 0)
+            if n and kw.get("num_blocks") == 28 and n != 28:
+                kw["num_blocks"] = n
+            init(self, *a, **kw)
+        am.Anima.__init__ = __init__
+        orig = module.load_anima_model
+
+        def load_anima_model(device, dit_path=None, *a, **kw):
+            path = dit_path if dit_path is not None else kw.get("dit_path")
+            n = 0
+            try:
+                n = _anima_file_blocks(path) if isinstance(path, str) and path.endswith(".safetensors") else 0
+            except Exception:
+                pass
+            if n and n != 28:
+                print(f"[lora] Anima 主模型有 {n} 层（加深版），按 {n} 层加载", flush=True)
+            am._lora_num_blocks = n
+            try:
+                if dit_path is None:
+                    return orig(device, *a, **kw)
+                return orig(device, dit_path, *a, **kw)
+            finally:
+                am._lora_num_blocks = 0
+        module.load_anima_model = load_anima_model
+
+    class _AnimaDepthFinder:
+        def find_spec(self, name, path, target=None):
+            if name != "library.anima_utils":
+                return None
+            import importlib.util
+            _sys11.meta_path.remove(self)
+            spec = importlib.util.find_spec(name)
+            if spec is None or spec.loader is None:
+                return spec
+            _exec = spec.loader.exec_module
+
+            def exec_module(module):
+                _exec(module)
+                try:
+                    _patch_anima_depth(module)
+                except Exception as e:
+                    print(f"[lora] Anima 加深版（2.9B）补丁没打上：{e}", flush=True)
+            spec.loader.exec_module = exec_module
+            return spec
+
+    _sys11.meta_path.insert(0, _AnimaDepthFinder())
