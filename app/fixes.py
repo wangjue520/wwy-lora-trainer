@@ -160,6 +160,13 @@ def apply(tid, fid, data=None):
     if fid == "reinstall_torch":
         job = jobs.start("env", "重装 PyTorch", lambda j: envsetup.install_torch(j, force=True), on_done=after)
         return {"ok": True, "message": "开始重装 PyTorch", "job": job.id}
+    if fid == "install_attn":
+        mode = data.get("mode") or (t["params"].get("attn_mode") if t else "")
+        if mode not in envsetup.ATTN_PKGS or not envsetup.ATTN_PKGS[mode][1]:
+            return {"ok": False, "message": "这个注意力实现没法自动安装，请改回默认的 torch SDPA"}
+        name = envsetup.ATTN_PKGS[mode][0]
+        job = jobs.start("env", f"安装 {name}", envsetup.install_attn, mode, on_done=after)
+        return {"ok": True, "message": f"开始安装 {name}，装好后自动继续", "job": job.id}
     if fid == "pip_install":
         job = jobs.start("env", f"安装 {data.get('pkg')}", envsetup.pip_install, data.get("pkg"), on_done=after)
         return {"ok": True, "message": f"开始安装 {data.get('pkg')}", "job": job.id}
