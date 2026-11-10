@@ -18,9 +18,20 @@ WD14_MODELS = {
     "vit-large": {"label": "WD ViT-Large v3", "repo": "SmilingWolf/wd-vit-large-tagger-v3"},
     "swinv2": {"label": "WD SwinV2 v3（快）", "repo": "SmilingWolf/wd-swinv2-tagger-v3"},
     "vit": {"label": "WD ViT v3（最快）", "repo": "SmilingWolf/wd-vit-tagger-v3"},
+    # PixAI 官方仓库要登录同意协议，和 WWY 启动器一样用 deepghs 转好的 ONNX（匿名可下）；角色更全更新、会带出作品名，没有分级标签
+    "pixai": {"label": "PixAI Tagger v0.9（角色更全更新，附带作品名）", "repo": "deepghs/pixai-tagger-v0.9-onnx",
+              "launcher": "pixai-tagger-v0.9", "general_threshold": 0.3},
 }
-# WWY 启动器「WD14 反推」页认识的两个模型（存放目录名 = 仓库名）
-LAUNCHER_WD14 = ("wd-vit-tagger-v3", "wd-eva02-large-tagger-v3")
+# WWY 启动器「图片反推」页认识的模型：仓库名 → 启动器 wd_tagger_models 下的目录名（WD 系列目录名 = 仓库名）
+LAUNCHER_WD14 = {"wd-vit-tagger-v3": "wd-vit-tagger-v3", "wd-eva02-large-tagger-v3": "wd-eva02-large-tagger-v3",
+                 "pixai-tagger-v0.9-onnx": "pixai-tagger-v0.9"}
+for _v in WD14_MODELS.values():
+    _v["launcher"] = LAUNCHER_WD14.get(_v["repo"].split("/")[-1], "")
+
+
+def launcher_wd14_name(repo):
+    """这个 WD14 / PixAI 模型在启动器里的目录名；启动器不认识的返回 ""。"""
+    return LAUNCHER_WD14.get((repo or "").split("/")[-1], "")
 
 # MOSS 系列预设共用的结尾：官方打标要求（图中文字一字不改 + 描述排版、不写水印）
 _MOSS_TAIL = ("Include only information visible in the image. Preserve any visible text exactly as written (do not translate, "

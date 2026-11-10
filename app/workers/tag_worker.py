@@ -204,15 +204,16 @@ class WD14:
             except Exception:
                 pass
         repo = cu.WD14_MODELS.get(cfg.get("model"), {}).get("repo") or cfg.get("model")
-        name = repo.split("/")[-1]
+        ln = cu.launcher_wd14_name(repo)   # 启动器里的目录名（PixAI 是 pixai-tagger-v0.9，和仓库名不同）
+        name = ln or repo.split("/")[-1]
         local = (cfg.get("launcher_models") or {}).get(name)
         if local and os.path.isfile(os.path.join(local, "model.onnx")):
             log(f"使用 WWY 启动器已下载的模型：{local}")
             emit(stage="load", text=f"使用 WWY 启动器里的 {name}")
             d = local
-        elif cfg.get("launcher_dir") and name in cu.LAUNCHER_WD14:
+        elif cfg.get("launcher_dir") and ln:
             # 启动器也认识的模型：下载到启动器的 wd_tagger_models，两边共用一份
-            d = os.path.join(cfg["launcher_dir"], name)
+            d = os.path.join(cfg["launcher_dir"], ln)
             log(f"下载 {repo} 到 WWY 启动器的模型目录：{d}")
             emit(stage="download", text=f"下载 {name}（存到 WWY 启动器，两边共用）")
             fetch(repo, models_dir, ["model.onnx", "selected_tags.csv"], local=d)
@@ -223,33 +224,61 @@ class WD14:
         provs = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in ort.get_available_providers()]
         self.sess = ort.InferenceSession(os.path.join(d, "model.onnx"), providers=provs)
         log("WD14 使用：" + ", ".join(self.sess.get_providers()))
-        self.size = self.sess.get_inputs()[0].shape[1]
-        self.tags, self.cats = [], []
+        self.tags, self.cats, self.ips = [], [], {}
         with open(os.path.join(d, "selected_tags.csv"), encoding="utf-8") as f:
-            for row in csv.DictReader(f):
+            for i, row in enumerate(csv.DictReader(f)):
                 self.tags.append(row["name"])
                 self.cats.append(int(row["category"]))
+                raw = (row.get("ips") or "").strip()   # PixAI 多一列：角色所属作品（JSON 数组）
+                if raw and raw != "[]":
+                    try:
+                        self.ips[i] = [x for x in json.loads(raw) if x]
+                    except ValueError:
+                        pass
+        # PixAI：输入 [N, 3, H, W]、有 embedding / logits / prediction 三个输出（要 sigmoid 过的 prediction）；
+        # WD 系列：输入 [N, H, W, 3]、只有一个输出。形状全是动态的认不出来时，带 ips 列的就是 PixAI
+        inp = self.sess.get_inputs()[0]
+        outs = [o.name for o in self.sess.get_outputs()]
+        self.out_name = "prediction" if "prediction" in outs else outs[0]
+        shape = inp.shape
+        if len(shape) == 4 and shape[1] == 3:
+            self.nchw = True
+        elif len(shape) == 4 and shape[3] == 3:
+            self.nchw = False
+        else:
+            self.nchw = bool(self.ips)
+        sz = shape[2] if self.nchw else shape[1]
+        self.size = sz if isinstance(sz, int) and sz > 1 else 448
+        self.pixai = self.nchw
         self.cfg = cfg
         self.exclude = set(t.strip().replace(" ", "_") for t in cu.split_tags(cfg.get("exclude") or ""))
 
-    def __call__(self, img):
+    def _input(self, img):
         import numpy as np
         from PIL import Image
         im = img.convert("RGBA")
         bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
         im = Image.alpha_composite(bg, im).convert("RGB")
+        if self.pixai:
+            # PixAI（deepghs 的 preprocess.json）：直接拉伸成正方形（双线性、不补边）→ 0~1 → (x-0.5)/0.5 → CHW
+            x = np.asarray(im.resize((self.size, self.size), Image.BILINEAR), dtype=np.float32) / 255.0
+            return np.expand_dims(((x - 0.5) / 0.5).transpose(2, 0, 1), 0)
         w, h = im.size
         s = max(w, h)
         sq = Image.new("RGB", (s, s), (255, 255, 255))
         sq.paste(im, ((s - w) // 2, (s - h) // 2))
         sq = sq.resize((self.size, self.size), Image.BICUBIC)
         x = np.asarray(sq, dtype=np.float32)[:, :, ::-1]   # RGB → BGR
-        x = np.expand_dims(x, 0)
-        probs = self.sess.run(None, {self.sess.get_inputs()[0].name: x})[0][0]
+        return np.expand_dims(x, 0)
+
+    def __call__(self, img):
+        x = self._input(img)
+        probs = self.sess.run([self.out_name], {self.sess.get_inputs()[0].name: x})[0][0]
         gthr = float(self.cfg.get("general_threshold") or 0.35)
         cthr = float(self.cfg.get("character_threshold") or 0.85)
         chars, general, rating = [], [], None
         best_r = -1
+        char_idx = []
         for i, p in enumerate(probs):
             name, cat = self.tags[i], self.cats[i]
             if name in self.exclude:
@@ -259,11 +288,18 @@ class WD14:
                     best_r, rating = p, name
             elif cat == 4 and p >= cthr:
                 chars.append((p, name))
+                char_idx.append((p, i))
             elif cat == 0 and p >= gthr:
                 general.append((p, name))
         chars.sort(reverse=True)
         general.sort(reverse=True)
-        out = [n for _, n in chars] + [n for _, n in general]
+        # PixAI 会带出角色所属作品：按 danbooru 习惯「角色, 作品, 常规」排，同一作品只出一次
+        works = []
+        for _, i in sorted(char_idx, reverse=True):
+            for w in self.ips.get(i, []):
+                if w not in works and w not in self.exclude:
+                    works.append(w)
+        out = [n for _, n in chars] + works + [n for _, n in general]
         if self.cfg.get("include_rating") and rating:
             out.insert(0, rating)
         if self.cfg.get("replace_underscore", True):

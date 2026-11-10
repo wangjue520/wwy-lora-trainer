@@ -6,7 +6,7 @@ import json
 import os
 import struct
 
-VERSION = 3   # 分类规则改了就加 1，扫描缓存里旧版本的结果会重新分类
+VERSION = 4   # 分类规则改了就加 1，扫描缓存里旧版本的结果会重新分类
 QUANT_DTYPES = {"I8", "U8", "F8_E4M3", "F8_E5M2", "F8_E8M0", "I4", "U4"}
 _PREFIXES = ("model.diffusion_model.", "diffusion_model.")
 
@@ -48,6 +48,19 @@ def _strip(k):
     return k
 
 
+def dit_blocks(keys):
+    """Anima / Cosmos DiT 的主干层数（blocks.N. 的最大 N + 1，不算 llm_adapter 里的层）。"""
+    import re
+    n = -1
+    for k in keys:
+        if "llm_adapter" in k:
+            continue
+        m = re.match(r"(?:.*\.)?blocks\.(\d+)\.", k)
+        if m:
+            n = max(n, int(m.group(1)))
+    return n + 1
+
+
 def classify(path):
     """返回 {kind, quant, note, error}。kind 见下方各分支；认不出时为 'unknown'。"""
     h, err = read_header(path)
@@ -79,6 +92,9 @@ def classify(path):
     if "net.x_embedder.proj.1.weight" in keys or "x_embedder.proj.1.weight" in keys:
         has_adapter = any("llm_adapter." in k for k in keys)
         info["kind"] = "anima_dit" if has_adapter else "cosmos_dit"
+        info["blocks"] = dit_blocks(keys)
+        if has_adapter and info["blocks"] == 40:   # Anima 2.9B（Gazingstars123）：28 层加深到 40 层，其余结构不变
+            info["kind"] = "anima29_dit"
         return info
 
     # Krea 2（single-stream MMDiT）
@@ -200,6 +216,8 @@ def lora_info(path):
     if not info["base"]:
         sample = " ".join(keys[:200])
         info["base"] = next((b for r, b in _LORA_BASE_KEYS if re.search(r, sample)), "")
+    if info["base"] == "anima" and any(re.match(r"lora_unet_blocks_(2[89]|3\d)_", k) for k in keys):
+        info["base"] = "anima29"   # Anima 2.9B 有 40 层，2B 只有 0–27 层
     downs = [k for k in keys if k.endswith((".lora_down.weight", ".lora_A.weight"))]
     try:
         info["dim"] = int(float(meta["ss_network_dim"]))

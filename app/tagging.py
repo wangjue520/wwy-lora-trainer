@@ -100,10 +100,11 @@ def _prefetch(job, conf):
     if mode in ("wd14", "hybrid"):
         w = conf.get("wd14") or {}
         repo = cu.WD14_MODELS.get(w.get("model"), {}).get("repo") or w.get("model")
-        name = (repo or "").split("/")[-1]
+        ln = cu.launcher_wd14_name(repo)
+        name = ln or (repo or "").split("/")[-1]
         lm = conf.get("launcher_models") or {}
         if repo and not (lm.get(name) and os.path.isfile(os.path.join(lm[name], "model.onnx"))):
-            local = os.path.join(conf["launcher_dir"], name) if conf.get("launcher_dir") and name in cu.LAUNCHER_WD14 \
+            local = os.path.join(conf["launcher_dir"], ln) if conf.get("launcher_dir") and ln \
                 else os.path.join(conf["models_dir"], repo.replace("/", "__"))
             need.append((repo, local, ["model.onnx", "selected_tags.csv"]))
     if mode in ("vlm", "hybrid"):

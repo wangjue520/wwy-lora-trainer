@@ -183,6 +183,9 @@ def child_env(extra=None, net=False):
     s = load()
     if s.get("hf_token"):
         env["HF_TOKEN"] = s["hf_token"]
+    # 界面上的显卡编号来自 nvidia-smi（按 PCI 总线排），CUDA 默认却按「最快的排第一」编号，两张卡（笔记本独显 + 显卡坞、
+    # 新卡 + 旧卡）时两边可能正好相反：选了 0 号实际跑在另一张上。统一按 PCI 总线编号，CUDA_VISIBLE_DEVICES 才和界面一致。
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     env["CUDA_VISIBLE_DEVICES"] = ",".join(gpu_list())
     # 训练环境的 Scripts 目录放到 PATH 最前（accelerate 等命令）
     if paths.env_python():

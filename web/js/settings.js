@@ -71,6 +71,7 @@
         P.show();
       };
       $('#st-install').textContent = env.env ? '重新安装 / 检查' : '安装训练环境';
+      if (App.diagnose) App.diagnose.loadSettings();
       $('#st-torchv').value = s.torch_variant || 'cu128';
       $('#st-repo').value = s.update_repo || '';
       App.$$('#st-net button').forEach(b => b.classList.toggle('on', b.dataset.v === s.network));
