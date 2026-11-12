@@ -428,6 +428,7 @@ select { padding-right: 6px; cursor: pointer; }
 .thumb .tno { position: absolute; left: 0; top: 0; background: var(--bad); color: #fff; font: 10px var(--mono); padding: 1px 5px; }
 .thumb .tck { position: absolute; right: 4px; top: 4px; width: 18px; height: 18px; border: 1px solid var(--ink); background: rgba(255,255,255,.85); display: none; align-items: center; justify-content: center; font-size: 12px; color: var(--ink); }
 .thumb.sel .tck { display: flex; background: var(--yel); }
+.thumb:hover .tck { display: flex; }
 .ed-detail .ed-img { width: 100%; max-height: 320px; object-fit: contain; background: repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 16px 16px; display: block; cursor: zoom-in; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px; min-height: 60px; align-content: flex-start; align-items: flex-start; }
 .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); padding: 2px 4px 2px 8px; font-size: 12px; background: var(--input-bg); cursor: grab; max-width: 100%; }

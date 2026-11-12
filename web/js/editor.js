@@ -212,17 +212,22 @@
         if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); P.step(e.key === 'ArrowLeft' ? -1 : 1); return; }
         if (typing || e.altKey) return;
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); P.step(e.key === 'ArrowLeft' ? -1 : 1); }
-        else if (e.key === 'Delete') { e.preventDefault(); P.removeCur(); }
+        else if (e.key === 'Delete' && S.sel.size < 2) { e.preventDefault(); P.removeCur(); }   // 多选时当前图没显示出来，不删
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); S.vis.forEach(i => S.sel.add(i)); P.selChanged(); }
         else if (e.key === 'Escape' && S.sel.size) { S.sel.clear(); P.selChanged(); }
       });
       // 关窗口 / 刷新时还没来得及保存的：用 sendBeacon 发出去（普通请求会被浏览器取消）
-      window.addEventListener('beforeunload', () => {
+      // pagehide 比 beforeunload 可靠（关标签页 / 关窗口时 beforeunload 不一定触发）；两个都挂，发过的从队列里拿掉，不会重复保存
+      const beacon = () => {
         saving.forEach(s => {
           clearTimeout(s.t);
-          navigator.sendBeacon('/api/editor.save', new Blob([JSON.stringify({ dir: S.dir, path: s.it.path, text: s.it.caption || '', base: s.it.base, ext: ext() })], { type: 'application/json' }));
+          navigator.sendBeacon('/api/editor.save', new Blob([JSON.stringify({ dir: S.dir, path: s.it.path, text: s.it.caption || '', base: s.it.base, ext: ext() })], { type: 'text/plain' }));
         });
-      });
+        saving.clear();
+      };
+      window.addEventListener('pagehide', beacon);
+      window.addEventListener('beforeunload', beacon);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') P.flush(); });   // 切到别的窗口时顺手存掉
     },
     show() {
       $('#ed-zh-on').checked = !!tr().on; $('#ed-zh-engine').value = tr().engine;   // 读取存档后草稿换了，跟着同步
@@ -463,7 +468,7 @@
     // 缩略图还没生成好时后台回 503：过一会儿再取，多次取不到才退回原图（以前是后台每张最多等 6 秒，会把别的请求堵住）
     loadThumb(img, path, n = 0) {
       img.onerror = () => {
-        if (n < 15) setTimeout(() => { if (img.isConnected) P.loadThumb(img, path, n + 1); }, 700 + n * 300);
+        if (n < 40) setTimeout(() => { if (img.isConnected) P.loadThumb(img, path, n + 1); }, Math.min(700 + n * 300, 3000));   // 大训练集的缩略图可能要生成一两分钟
         else { img.onerror = null; img.src = '/file?path=' + encodeURIComponent(path); }
       };
       img.src = `/thumb?path=${encodeURIComponent(path)}${n ? '&r=' + n : ''}`;
@@ -542,8 +547,8 @@
       const prm = App.params(), keep = prm.shuffle_caption ? (+prm.keep_tokens || 0) : 0;
       let html = '';
       p.tags.forEach((t, k) => {
-        const z = zhOn ? zhOf(t) : '';
         const isTrig = trig && norm(t) === trig;
+        const z = zhOn && !isTrig ? zhOf(t) : '';   // 触发词是自己起的名字，碰巧和 D 站标签同名时显示的中文没意义
         html += `<span class="chip ${catOf(t)} ${isTrig ? 'ed-trig' : ''}" data-i="${k}" ${bad ? '' : 'draggable="true"'} title="${isTrig ? (S.trig.guessed ? '触发词（推测：几乎每张图的第一个标签都是它）· ' : '触发词 · ') : ''}拖动排序；双击修改"><span>${esc(t)}${z ? `<span class="zh">${esc(z)}</span>` : ''}</span>${bad ? '' : '<button title="删除">×</button>'}</span>`;
         if (keep && k === keep - 1 && k < p.tags.length - 1) html += `<span class="chip-keep" title="开了「打乱标签顺序」：前 ${keep} 个标签训练时固定，后面的每步随机打乱">固定 ┆ 打乱</span>`;
       });
@@ -567,10 +572,10 @@
       const cnt = new Map();
       idx.forEach(i => { const seen = new Set(); pp(S.items[i]).tags.forEach(t => { const k = norm(t); if (seen.has(k)) return; seen.add(k); const e = cnt.get(k) || { n: 0, raw: t }; e.n++; cnt.set(k, e); }); });
       const arr = [...cnt].sort((a, b) => (b[1].n === N) - (a[1].n === N) || b[1].n - a[1].n || ((S.statMap.get(b[0]) || {}).n || 0) - ((S.statMap.get(a[0]) || {}).n || 0));
-      const zhOn = tr().on;
+      const zhOn = tr().on, trig = S.trig ? norm(S.trig.main) : '';
       $('#ed-chips').innerHTML = arr.map(([k, e]) => {
-        const raw = (S.statMap.get(k) || {}).raw || e.raw, z = zhOn ? zhOf(raw) : '';
-        return `<span class="chip ${catOf(raw)} ${e.n < N ? 'part' : ''}" data-raw="${esc(raw)}" title="${e.n < N ? `${e.n} / ${N} 张有，点一下补到全部所选` : `所选的 ${N} 张都有`}"><span>${esc(raw)}${z ? `<span class="zh">${esc(z)}</span>` : ''}</span>${e.n < N ? `<b class="pc">${e.n}/${N}</b>` : ''}<button title="从所选的 ${N} 张里删掉">×</button></span>`;
+        const raw = (S.statMap.get(k) || {}).raw || e.raw, isTrig = trig && k === trig, z = zhOn && !isTrig ? zhOf(raw) : '';
+        return `<span class="chip ${catOf(raw)} ${isTrig ? 'ed-trig' : ''} ${e.n < N ? 'part' : ''}" data-raw="${esc(raw)}" title="${e.n < N ? `${e.n} / ${N} 张有，点一下补到全部所选` : `所选的 ${N} 张都有`}"><span>${esc(raw)}${z ? `<span class="zh">${esc(z)}</span>` : ''}</span>${e.n < N ? `<b class="pc">${e.n}/${N}</b>` : ''}<button title="从所选的 ${N} 张里删掉">×</button></span>`;
       }).join('') || '<span class="muted">所选图片都还没有标签</span>';
     },
     bindChips() {
@@ -676,6 +681,9 @@
         if (r && r.conflict) {
           it.caption = it.base = r.current;
           App.toast(`「${it.rel}」的标签刚被别的程序改过（比如反推还在写），已换成文件里的最新内容，你刚才的修改没有保存`, 'bad', null, null, 10000);
+          const i = S.items.indexOf(it);
+          if (i >= 0) { P.updateThumb(i); P.recountSoon(); if (i === S.cur) { $('#ed-text').blur(); P.renderDetail(); } }
+          return;
         } else {
           it.base = text;
           if (S.items[S.cur] === it && !saving.has(it.path)) $('#ed-saved').textContent = '已保存';
@@ -787,7 +795,10 @@
       let chk;
       try { chk = await api('editor.undo', { dir: S.dir, ext: ext(), id, dry: true }); } catch (e) { App.toast(e.message, 'bad'); return; }
       if (!chk.ok) { App.toast(chk.message, 'bad'); return; }
-      if (chk.modified && !(await App.confirm('撤销会覆盖手动修改', `这${chk.count > 1 ? ` ${chk.count} 次` : '次'}批量操作之后，又手动改过 <b>${chk.modified}</b> 张图的标签。<br>撤销会把这些手动修改一起还原掉。`, '仍然撤销', true))) return;
+      const warn = [];
+      if (chk.count > 1) warn.push(`这次之后又做过 <b>${chk.count - 1}</b> 次批量操作，会一起撤销。`);
+      if (chk.modified) warn.push(`这些批量操作之后，又手动改过 <b>${chk.modified}</b> 张图的标签，撤销会把这些手动修改一起还原掉。`);
+      if (warn.length && !(await App.confirm('确认撤销', warn.join('<br><br>'), '仍然撤销', true))) return;
       let r;
       try { r = await api('editor.undo', { dir: S.dir, ext: ext(), id }); } catch (e) { App.toast(e.message, 'bad'); return; }
       App.toast(r.message, r.ok ? 'ok' : 'bad');

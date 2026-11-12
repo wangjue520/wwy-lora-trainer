@@ -57,9 +57,7 @@ def trigger_info(d, caps=None, ext=".txt"):
 
 
 def load(d, ext=".txt"):
-    if not d or not os.path.isdir(d):
-        raise ValueError("训练集文件夹不存在：" + (d or ""))
-    files = cu.list_images(d)
+    files = cu.list_images(d)   # 文件夹不存在时是空列表（和以前一样，界面上显示「没有图片」）
     items, freq = [], collections.Counter()
     for f in files:
         cap, st = cu.read_caption_ex(f, ext)
@@ -176,6 +174,8 @@ def undo(d, ext=".txt", bid=None, dry=False):
     items = {}
     for x, s in snaps:
         for f, txt in (s.get("files") or {}).items():
+            if not os.path.exists(f):   # 图片已经移出训练集：不在原处留下没有图片的标签文件
+                continue
             if txt is None:
                 try:
                     os.remove(cu.caption_path(f, ext))
@@ -240,7 +240,17 @@ def _apply(op, d, tags, text, sep, cap, kw, freq):
     elif op in ("replace", "rename_map"):
         mp = {cu.norm_tag(kw.get("old", "")): kw.get("new", "").strip()} if op == "replace" else \
             {cu.norm_tag(k): (v or "").strip() for k, v in (kw.get("map") or {}).items()}
-        tags = _dedupe([mp.get(cu.norm_tag(t), t) for t in tags])
+        if any(cu.norm_tag(t) in mp for t in tags):
+            # 只去掉改名造成的重复（改成的名字原来就有）；这张图里别的重复标签不动，那是「去重」的事
+            targets = {cu.norm_tag(v) for v in mp.values()}
+            out, seen = [], set()
+            for t in (mp.get(cu.norm_tag(t), t) for t in tags):
+                k = cu.norm_tag(t)
+                if not k or (k in targets and k in seen):
+                    continue
+                seen.add(k)
+                out.append(t)
+            tags = out
     elif op == "dedupe":
         tags = _dedupe(tags)
     elif op == "trigger":

@@ -141,6 +141,14 @@ class Batch(Base):
         dataset.batch(self.d, "rename_map", None, ".txt", map={"long_hair": "long hair"})
         self.assertEqual(self.cap("a"), "long hair, smile")
 
+    def test_rename_leaves_other_dupes_and_files_alone(self):
+        self.mk("a", "1girls, 1girl, smile, smile\n")
+        self.mk("b", "solo, solo\n")
+        r = dataset.batch(self.d, "rename_map", None, ".txt", map={"1girls": "1girl"})
+        self.assertEqual(r["changed"], 1)
+        self.assertEqual(self.cap("a"), "1girl, smile, smile")
+        self.assertEqual(self.cap("b"), "solo, solo")
+
     def test_bad_regex_message(self):
         self.mk("a", "1girl\n")
         with self.assertRaises(ValueError):

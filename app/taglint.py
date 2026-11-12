@@ -189,11 +189,13 @@ def run(d, ext=".txt", limit=None, trigger=None):
         if unknown:
             unknown.sort(key=lambda k: -df[k])
             rows = []
-            for k in unknown[:80]:
-                try:
-                    sug = [x["name"] for x in tagdict.search(k, 4)] or tagdict.fuzzy(k.replace(" ", "_"), 3)
-                except Exception:
-                    sug = []
+            for n, k in enumerate(unknown[:200]):
+                sug = []
+                if n < 30:   # 找近似写法要扫一遍 12 万条字典，只给出现最多的 30 个找（每个约 0.1 秒）
+                    try:
+                        sug = [x["name"] for x in tagdict.search(k, 4)] or tagdict.fuzzy(k.replace(" ", "_"), 3)
+                    except Exception:
+                        sug = []
                 sug = [_in_style(s, style) for s in sug if cu.norm_tag(s) != k][:3]
                 rows.append({"tag": disp(k), "count": df[k], "suggest": sug})
             files = [p for p, (tags, _t) in parsed.items() if any(cu.norm_tag(t) in set(unknown) for t in tags)]
