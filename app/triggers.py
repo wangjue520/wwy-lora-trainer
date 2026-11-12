@@ -145,9 +145,9 @@ def analyze(d, ext=".txt", mode="freq", typical=None, main=None, hints=None, fea
     caps = {}
     freq = collections.Counter()
     for it in items:
-        tags = [t for t in cu.split_tags(it["caption"]) if not dataset._is_sentence(t)]
+        tags = cu.parse_caption(it["caption"])[0]
         if old_main:   # 上次加的主触发词不参与统计
-            tags = [t for t in tags if t != old_main]
+            tags = [t for t in tags if cu.norm_tag(t) != cu.norm_tag(old_main)]
         caps[it["path"]] = tags
         freq.update(set(tags))
     info = tagdict.info([_key(t) for t in freq]) if tagdict.load() else {}
@@ -281,21 +281,26 @@ def apply(d, main, features, outfit, ext=".txt", prune=None, mode="freq", typica
     old = get(d) or {}
     old_main = (old.get("main") or "").strip()
     files = cu.list_images(d)
-    dataset._backup(d, files, ext, "自动整理触发词")
     feats, outs = list(features or []), list(outfit or [])
-    fs, os_ = set(feats), set(outs)
-    changed = 0
+    fs, os_ = {cu.norm_tag(t) for t in feats}, {cu.norm_tag(t) for t in outs}
+    drop = (fs if prune["features"] else set()) | (os_ if prune["outfit"] else set())
+    drop |= {cu.norm_tag(main), cu.norm_tag(old_main)} - {""}
+    plan = {}
+    # 先算好每个文件改完的样子，只备份、只写真正有变化的（不是 UTF-8 的标签文件跳过，免得写成乱码）
     for f in files:
-        cap = cu.read_caption(f, ext)
-        if cap is None:
+        cap, st = cu.read_caption_ex(f, ext)
+        if cap is None or st == "bad":
             continue
-        tags = cu.split_tags(cap)
-        drop = (fs if prune["features"] else set()) | (os_ if prune["outfit"] else set())
-        new = [main] + [t for t in tags if t not in (main, old_main) and t not in drop]   # 不改其余标签的顺序
-        text = ", ".join(new)
-        if text != cap:
-            cu.write_caption(f, text, ext)
-            changed += 1
+        tags, text, sep = cu.parse_caption(cap)   # 自然语言段原样保留
+        new = [main] + [t for t in tags if cu.norm_tag(t) not in drop]   # 不改其余标签的顺序
+        out = cu.build_caption(new, text, sep)
+        if out.strip() != cap.strip():
+            plan[f] = out
+    if plan:
+        dataset._backup(d, list(plan), ext, "自动整理触发词", after=plan)
+    for f, out in plan.items():
+        cu.write_caption(f, out, ext)
+    changed = len(plan)
     # 用 LoRA 时要写的：主触发词 + 没删掉的那几组（删掉的已经记在主触发词上了）
     prompt = ", ".join([main] + ([] if prune["features"] else feats) + ([] if prune["outfit"] else outs))
     info = {"main": main, "features": feats, "outfit": outs, "prune": prune, "mode": mode, "typical": typical,

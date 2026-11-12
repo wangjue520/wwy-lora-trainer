@@ -259,48 +259,58 @@
           <input type="text" id="ed-dir" style="flex:1;min-width:260px" placeholder="训练集文件夹">
           <button class="btn" id="ed-browse">浏览…</button>
           <button class="btn" id="ed-reload">刷新</button>
-          <input type="text" id="ed-search" placeholder="搜索标签 / 文字" style="width:180px">
+          <select id="ed-sub" hidden title="只看某个子文件夹（批量操作也只作用于它）"></select>
+          <input type="text" id="ed-search" placeholder="搜索标签 / 文字 / 文件名" style="width:180px">
           <div class="seg" id="ed-filter"><button data-v="all" class="on">全部</button><button data-v="nocap">无标签</button><button data-v="sel">已选</button></div>
+          <button class="btn" id="ed-lint" title="检查写法不统一、别名、拼错、重复、人数矛盾、触发词、编码等问题，能自动修的一键修">标签体检</button>
           <button class="btn" id="ed-trigger" title="自动判断主触发词、角色特征、服装，并整理全部标签（勾选一张图再点 = 用它当典型图片）">✦ 触发词</button>
-          <button class="btn" id="ed-undo" title="撤销上一次批量操作">撤销批量</button>
+          <button class="btn" id="ed-undo" title="查看批量操作记录，撤销到某一次之前">撤销…</button>
         </div>
         <div class="ed-top" id="ed-batch">
           <span class="muted" id="ed-scope">作用于：全部图片</span>
-          <input type="text" id="ed-b-tags" placeholder="标签，逗号分隔" style="width:200px">
-          <button class="btn btn-sm" data-op="add-front">加到最前</button>
+          <span class="ed-acwrap"><input type="text" id="ed-b-tags" autocomplete="off" placeholder="标签，逗号分隔（有补全，中文也能搜）" style="width:250px"></span>
+          <button class="btn btn-sm" data-op="add-front" title="已经有的会挪到最前（触发词后面）">加到最前</button>
           <button class="btn btn-sm" data-op="add-back">加到最后</button>
-          <button class="btn btn-sm" data-op="remove">删除这些标签</button>
-          <span class="muted">|</span>
-          <input type="text" id="ed-b-find" placeholder="查找" style="width:130px">
-          <input type="text" id="ed-b-rep" placeholder="替换为" style="width:130px">
-          <button class="btn btn-sm" data-op="find_replace">替换</button>
-          <span class="muted">|</span>
-          <button class="btn btn-sm" data-op="dedupe">去重</button>
-          <button class="btn btn-sm" data-op="sort">按频率整理</button>
-          <button class="btn btn-sm" data-op="trigger">设置触发词</button>
-          <button class="btn btn-sm btn-danger" data-op="clear">清空</button>
+          <button class="btn btn-sm" data-op="remove" title="大小写、下划线 / 空格写法不同也会删掉">删除这些标签</button>
+          <span class="hint ed-hit" id="ed-b-hit"></span>
+          <span style="flex:1"></span>
+          <details class="ed-fr" id="ed-fr"><summary class="btn btn-sm">查找替换 ▾</summary>
+            <div class="ed-fr-body">
+              <input type="text" id="ed-b-find" placeholder="查找" style="width:150px">
+              <input type="text" id="ed-b-rep" placeholder="替换为" style="width:150px">
+              <label class="chk-row" title="用正则表达式查找（替换里可以用 \1 引用分组）"><input type="checkbox" id="ed-b-re"><i></i><span>正则</span></label>
+              <button class="btn btn-sm btn-primary" data-op="find_replace">替换</button>
+            </div>
+          </details>
+          <select id="ed-tidy" title="整理标签"><option value="">整理…</option><option value="dedupe">去掉重复标签</option><option value="sort">按出现频率排序（第一个标签不动）</option><option value="clear">清空标签</option></select>
         </div>
+        <div class="ed-conds" id="ed-conds" hidden></div>
         <div class="ed-wrap">
           <div class="ed-pane">
             <div class="ed-pane-h">标签统计<span class="right"><select id="ed-tag-sort" style="height:24px;font-size:11px"><option value="count">按数量</option><option value="alpha">按字母</option></select></span></div>
+            <div class="ed-tag-q"><input type="text" id="ed-tag-q" placeholder="找标签（中英文都行）"></div>
             <div class="ed-pane-b tag-list" id="ed-tags"></div>
+            <div class="ed-tag-help">点一下 = 只看有这个标签的图，再点 = 只看没有的，再点 = 取消；可以叠加多个</div>
           </div>
           <div class="ed-pane">
             <div class="ed-pane-h"><span id="ed-count">图片</span><span class="right">
-              <button class="btn btn-sm" id="ed-selall">全选</button><button class="btn btn-sm" id="ed-selnone">取消选择</button>
+              <button class="btn btn-sm" id="ed-selall" title="Ctrl+A">全选</button><button class="btn btn-sm" id="ed-selnone" title="Esc">取消选择</button>
               <select id="ed-size" style="height:24px;font-size:11px"><option value="110">小图</option><option value="140" selected>中图</option><option value="200">大图</option></select></span></div>
             <div class="ed-pane-b"><div class="thumbs" id="ed-thumbs"></div></div>
           </div>
-          <div class="ed-pane ed-detail">
+          <div class="ed-pane ed-detail" id="ed-detail">
             <div class="ed-pane-h"><span id="ed-cur-name">未选择图片</span><span class="right">
-              <button class="icon-btn" id="ed-prev" title="上一张（Alt+←）">◀</button><button class="icon-btn" id="ed-next" title="下一张（Alt+→）">▶</button></span></div>
+              <button class="icon-btn" id="ed-prev" title="上一张（← / Alt+←）">◀</button><button class="icon-btn" id="ed-next" title="下一张（→ / Alt+→）">▶</button></span></div>
             <div class="ed-pane-b">
               <img class="ed-img" id="ed-img" alt="" hidden>
-              <div style="padding:8px 10px 0" class="row">
+              <div class="ed-multi" id="ed-multi" hidden></div>
+              <div style="padding:8px 10px 0;flex-wrap:wrap" class="row">
                 <div class="seg" id="ed-view"><button data-v="chips" class="on">标签</button><button data-v="text">文本</button></div>
                 <label class="chk-row" title="D 站标签查中英字典；自然语言长句用本地模型或 API 翻译（只用来看，不改标签文件）"><input type="checkbox" id="ed-zh-on"><i></i><span>显示中文</span></label>
+                <span class="hint" id="ed-zh-hint" style="margin:0"></span>
                 <span class="hint" id="ed-saved" style="margin:0 0 0 auto"></span>
               </div>
+              <div class="ed-warn" id="ed-warn" hidden></div>
               <div class="ed-zh" id="ed-zh" hidden>
                 <div class="ed-zh-text" id="ed-zh-text"></div>
                 <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap" id="ed-zh-act">
@@ -309,10 +319,12 @@
                   <span class="hint" id="ed-zh-prog" style="margin:0"></span>
                 </div>
               </div>
+              <div class="ed-pins" id="ed-pins"></div>
               <div class="chips" id="ed-chips"></div>
-              <div style="padding:0 10px 10px;position:relative" id="ed-add-wrap"><input type="text" id="ed-add" placeholder="输入标签回车添加（有自动补全），可逗号分隔多个" style="width:100%"></div>
-              <div style="padding:0 10px 10px" id="ed-text-wrap" hidden><textarea id="ed-text" rows="10" style="width:100%"></textarea></div>
-              <div style="padding:0 10px 12px" class="row"><button class="btn btn-sm btn-danger" id="ed-remove">移出训练集</button><span class="hint" style="margin:0">移到训练集里的「_已移除」文件夹，可以找回</span></div>
+              <div style="padding:0 10px 10px" class="ed-acwrap" id="ed-add-wrap"><input type="text" id="ed-add" autocomplete="off" placeholder="输入标签回车添加（有补全，中文也能搜），可逗号分隔多个" style="width:100%"></div>
+              <div style="padding:0 10px 10px" id="ed-text-wrap" hidden><textarea id="ed-text" rows="10" style="width:100%"></textarea><div class="ed-text-zh" id="ed-text-zh" hidden></div></div>
+              <div style="padding:0 10px 12px" class="row" id="ed-remove-row"><button class="btn btn-sm btn-danger" id="ed-remove" title="Delete">移出训练集</button><span class="hint" style="margin:0">移到训练集里的「_已移除」文件夹，可以找回</span></div>
+              <div class="ed-keys hint">快捷键：← → 切换图片 · Ctrl / Shift 点击多选 · Ctrl+A 全选 · Esc 取消选择 · Delete 移出训练集</div>
             </div>
           </div>
         </div>

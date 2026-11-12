@@ -18,6 +18,7 @@ SIZE = 320
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _lock = threading.Lock()
 _pending = set()
+_failed = set()   # 生成失败的缩略图（坏图 / 格式不支持）：不再反复生成，直接用原图
 
 
 def thumb_path(src):
@@ -38,7 +39,7 @@ def prepare(files):
     todo = []
     for f in files:
         t = thumb_path(f)
-        if t and not os.path.isfile(t) and t not in _pending:
+        if t and not os.path.isfile(t) and t not in _pending and t not in _failed:
             todo.append([f, t, SIZE])
     if not todo:
         return
@@ -57,6 +58,7 @@ def prepare(files):
         finally:
             with _lock:
                 _pending.difference_update(t for _, t, _ in todo)
+                _failed.update(t for _, t, _ in todo if not os.path.isfile(t))
             try:
                 os.remove(job)
             except OSError:
@@ -82,3 +84,25 @@ def get(src, wait=6.0):
             break
         time.sleep(0.1)
     return t if os.path.isfile(t) else None
+
+
+def lookup(src, wait=0.3):
+    """不阻塞的版本：返回 (缩略图路径 or None, 还在生成中)。
+    (None, False) = 生成不了（没装训练环境 / 坏图），调用方直接用原图。"""
+    t = thumb_path(src)
+    if not t:
+        return None, False
+    if os.path.isfile(t):
+        return t, False
+    if t in _failed:
+        return None, False
+    if t not in _pending:
+        prepare([src])
+    end = time.time() + wait
+    while time.time() < end and t in _pending:
+        if os.path.isfile(t):
+            return t, False
+        time.sleep(0.05)
+    if os.path.isfile(t):
+        return t, False
+    return None, t in _pending

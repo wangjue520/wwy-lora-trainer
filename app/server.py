@@ -596,19 +596,21 @@ def _dict_search(a):
 
 @api("dict.zh")
 def _dict_zh(a):
-    """标签编辑里的翻译：D 站标签 → 中文（空格 / 下划线写法、别名都认）。字典还没下载时返回空。"""
+    """标签编辑：D 站标签 → 中文和分类（空格 / 下划线写法、大小写、转义括号、别名都认）。
+    返回 {"items": {标签: {"zh", "cat"}}, "missing": 字典还没下载}；字典里没有的标签不出现在 items 里。"""
     import tagdict
     if not tagdict.load():
-        return {}
+        return {"items": {}, "missing": True}
     out = {}
     for t in a.get("tags") or []:
-        for c in (t, t.replace(" ", "_"), t.replace("_", " ")):
-            name = tagdict.resolve(c.strip().lower())
-            row = tagdict.info([name]).get(name) if name else None
-            if row and row.get("zh"):
-                out[t] = row["zh"]
-                break
-    return out
+        k = cu.norm_tag(t)
+        if not k:
+            continue
+        name = tagdict.resolve(k.replace(" ", "_")) or tagdict.resolve(k)
+        row = tagdict.info([name]).get(name) if name else None
+        if row:
+            out[t] = {"zh": row.get("zh") or "", "cat": row.get("category")}
+    return {"items": out, "missing": False}
 
 
 @api("translate.get")
@@ -730,18 +732,40 @@ def _editor_load(a):
 
 @api("editor.save")
 def _editor_save(a):
-    return dataset.save_one(a["dir"], a["path"], a.get("text") or "", a.get("ext") or ".txt")
+    return dataset.save_one(a["dir"], a["path"], a.get("text") or "", a.get("ext") or ".txt", a.get("base"))
 
 
 @api("editor.batch")
 def _editor_batch(a):
     kw = dict(a.get("args") or {})
-    return dataset.batch(a["dir"], a["op"], a.get("files") or None, a.get("ext") or ".txt", **kw)
+    # files 为空列表 = 当前筛选一张图都没有，不能当成「全部」（以前会把整个训练集都改了）；只有不传 / null 才是全部
+    r = dataset.batch(a["dir"], a["op"], a.get("files"), a.get("ext") or ".txt", **kw)
+    r["undo"] = bool(dataset._latest_backup(a["dir"]))
+    return r
 
 
 @api("editor.undo")
 def _editor_undo(a):
-    return dataset.undo(a["dir"], a.get("ext") or ".txt")
+    return dataset.undo(a["dir"], a.get("ext") or ".txt", a.get("id") or None, bool(a.get("dry")))
+
+
+@api("editor.history")
+def _editor_history(a):
+    return dataset.history(a["dir"])
+
+
+@api("editor.lint")
+def _editor_lint(a):
+    import taglint
+    return taglint.run(a["dir"], a.get("ext") or ".txt", a.get("limit") or None, a.get("trigger") or None)
+
+
+@api("editor.lint_fix")
+def _editor_lint_fix(a):
+    import taglint
+    r = taglint.fix(a["dir"], a["fix"], a.get("data") or {}, a.get("ext") or ".txt")
+    r["undo"] = bool(dataset._latest_backup(a["dir"]))
+    return r
 
 
 @api("editor.remove")
@@ -859,10 +883,14 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/thumb":
             src = urllib.parse.parse_qs(u.query).get("path", [""])[0]
             if src.lower().endswith(cu.IMAGE_EXTS) and os.path.isfile(src):
-                t = thumbs.get(src)
+                t, pending = thumbs.lookup(src)
                 if t:
                     with open(t, "rb") as f:
                         return self._send(200, f.read(), "image/jpeg", {"Cache-Control": "max-age=86400"})
+                if pending:
+                    # 还在生成：马上回 503，界面过一会儿再来取。以前这里最多等 6 秒，几十张缩略图一起等会占满浏览器的连接，
+                    # 别的接口请求（批量修改、保存）都要排队，看起来就是「点了没反应」
+                    return self._send(503, b"pending", "text/plain", {"Retry-After": "1"})
             return self._file(src)
         rel = u.path.lstrip("/") or "index.html"
         p = os.path.normpath(os.path.join(paths.WEB, rel))

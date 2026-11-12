@@ -152,15 +152,111 @@ def caption_path(img, ext=".txt"):
     return os.path.splitext(img)[0] + ext
 
 
-def read_caption(img, ext=".txt"):
-    p = caption_path(img, ext)
+def decode_caption(raw):
+    """标签文件的字节 → (文本, 状态)。状态：ok / bom（UTF-8 带 BOM，已去掉）/ bad（不是 UTF-8，文本里有替换字符）。
+    不是 UTF-8 的文件不猜编码（GBK 和 Shift-JIS 猜错了写回去就永久乱码），交给标签体检让用户确认后转换。"""
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    if bom:
+        raw = raw[3:]
     try:
-        with open(p, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+        return raw.decode("utf-8"), ("bom" if bom else "ok")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace"), "bad"
+
+
+def read_caption_ex(img, ext=".txt"):
+    """返回 (文本, 状态)；没有标签文件时 (None, "none")。"""
+    try:
+        with open(caption_path(img, ext), "rb") as f:
+            raw = f.read()
     except OSError:
-        return None
+        return None, "none"
+    return decode_caption(raw)
+
+
+def read_caption(img, ext=".txt"):
+    return read_caption_ex(img, ext)[0]
 
 
 def write_caption(img, text, ext=".txt"):
-    with open(caption_path(img, ext), "w", encoding="utf-8") as f:
-        f.write((text or "").strip() + "\n" if text else "")
+    """先写临时文件再换过去：批量改到一半出错（磁盘满、被占用）也不会留下写了一半的标签文件。"""
+    p = caption_path(img, ext)
+    data = ((text or "").strip() + "\n") if (text or "").strip() else ""
+    tmp = p + ".wwytmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(data)
+        os.replace(tmp, p)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        with open(p, "w", encoding="utf-8", newline="\n") as f:   # 目标被别的程序以不允许替换的方式打开时（Windows），退回直接写
+            f.write(data)
+
+
+# ---------------- 标签编辑用：归一化匹配 + 「标签段 + 自然语言段」拆分 ----------------
+SENTENCE_WORDS = 7   # 超过这么多个词的片段当成自然语言句子
+_CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+
+
+def norm_tag(t):
+    """比较用的标签写法：小写、下划线当空格、去掉转义括号和多余空格。^_^ 这类 3 个字以内的表情保留下划线。"""
+    t = (t or "").replace("\ufeff", "").strip().lower().replace("\\(", "(").replace("\\)", ")")
+    if len(t) > 3:
+        t = t.replace("_", " ")
+    return re.sub(r"\s+", " ", t)
+
+
+def split_input(s):
+    """用户输入的一串标签：半角 / 全角逗号、顿号、换行都算分隔。"""
+    return [t.strip() for t in re.split(r"[,，、\n]", s or "") if t.strip()]
+
+
+def is_prose(seg):
+    """这一段是不是自然语言（而不是标签）。"""
+    s = (seg or "").strip()
+    if not s or not (re.search(r"[A-Za-z]{2}", s) or _CJK.search(s)):   # 「...」「!?」这类符号标签不算
+        return False
+    words = s.split()
+    if len(words) >= SENTENCE_WORDS or s.endswith((".", "。")):
+        return True
+    if len(words) >= 3 and s[0].isupper() and "(" not in s:   # 「A girl stands」这类开头大写的短句；WD14 / D 站标签都是小写
+        return True
+    return len(_CJK.findall(s)) >= 12   # 中文 / 日文长句（里面没有半角逗号，整段会被当成一个片段）
+
+
+def parse_caption(cap):
+    """拆成 (标签列表, 自然语言段原文, 两者之间的分隔符原文)。
+    反推的混合格式是「触发词, 标签…. 自然语言句子」或「触发词, 自然语言句子」：句子里也有逗号，
+    不能整条按逗号拆（会把句子拆碎，最后一个标签还会和句子粘在一起）。自然语言段原样保留、不重新拼。"""
+    cap = (cap or "").replace("\ufeff", "")
+    tags, head_end = [], 0
+    for m in re.finditer(r"[^,\n]+", cap):
+        seg = m.group(0)
+        if not seg.strip():
+            continue
+        lead = len(seg) - len(seg.lstrip())
+        start = m.start() + lead
+        # 「mosaic censoring. A girl is standing」：句号前面是最后一个标签，后面是句子
+        k = re.search(r"\.\s+(?=[A-Z])", seg)
+        if k and len(seg[k.end():].split()) < 2:
+            k = None
+        if k or is_prose(seg):
+            if k and not is_prose(seg[:k.start()]) and seg[:k.start()].strip():
+                tags.append(seg[:k.start()].strip())
+                head_end = m.start() + k.start()
+                start = m.start() + k.end()
+            return tags, cap[start:].strip(), cap[head_end:start] if tags else ""
+        tags.append(seg.strip())
+        head_end = m.end()
+    return tags, "", ""
+
+
+def build_caption(tags, text="", sep=""):
+    tags = [t for t in (x.strip() for x in tags) if t]
+    text = (text or "").strip()
+    if tags and text:
+        return ", ".join(tags) + (sep or ". ") + text
+    return text or ", ".join(tags)
